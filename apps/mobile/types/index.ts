@@ -7,6 +7,7 @@ export interface User {
   heltesId: string;
   heltesName: string;
   employeeId: string;
+  idCardNumber: string;
   avatarUrl?: string;
   email: string;
   phone: string;
@@ -47,6 +48,8 @@ export interface ServiceItem {
   id: string;
   title: string;
   icon: string;
+  description?: string;
+  iconAsset?: number;
   route?: string;
   categoryId?: string;
   iconBg?: string;
@@ -59,9 +62,20 @@ export interface NewsItem {
   id: string;
   title: string;
   description: string;
+  body?: string;
   imageUrl?: string;
   date: string;
   likes: number;
+}
+
+export interface Banner {
+  id: string;
+  title: string;
+  subtitle?: string;
+  tag?: string;
+  imageUrl: string;
+  linkUrl?: string;
+  newsId?: string;
 }
 
 export interface FileItem {

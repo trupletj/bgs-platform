@@ -6,7 +6,7 @@ import {
   setBiometricEnabled as storeBiometricEnabled,
   promptBiometric,
 } from "@/lib/biometric";
-import type { User, VerifyUserResponse } from "@/types";
+import type { User } from "@/types";
 import type { Session } from "@supabase/supabase-js";
 
 interface AuthState {
@@ -14,19 +14,17 @@ interface AuthState {
   user: User | null;
   isAuthenticated: boolean;
   isLoading: boolean;
-  phone: string;
   error: string | null;
-  verifyLoading: boolean;
-  otpLoading: boolean;
   biometricAvailable: boolean;
   biometricEnabled: boolean;
   isUnlocked: boolean;
 
   initialize: () => Promise<void>;
-  verifyUser: (phone: string, register: string) => Promise<void>;
-  sendOtp: (phone: string, register: string) => Promise<void>;
-  verifyOtp: (phone: string, token: string) => Promise<void>;
-  fetchDbUser: (phone: string) => Promise<void>;
+  applyTokens: (tokens: {
+    access_token: string;
+    refresh_token: string;
+  }) => Promise<void>;
+  fetchDbUser: (phone: string, userId?: string) => Promise<void>;
   logout: () => Promise<void>;
   clearError: () => void;
   checkBiometricAvailability: () => Promise<void>;
@@ -39,10 +37,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
   user: null,
   isAuthenticated: false,
   isLoading: true,
-  phone: "",
   error: null,
-  verifyLoading: false,
-  otpLoading: false,
   biometricAvailable: false,
   biometricEnabled: false,
   isUnlocked: false,
@@ -54,9 +49,8 @@ export const useAuthStore = create<AuthState>((set, get) => ({
       } = await supabase.auth.getSession();
 
       if (session) {
-        const phone = session.user.phone?.replace("+976", "") ?? "";
-        set({ session, isAuthenticated: true, phone });
-        await get().fetchDbUser(phone);
+        set({ session, isAuthenticated: true });
+        await get().fetchDbUser(session.user.phone ?? "", session.user.id);
       }
 
       await get().checkBiometricAvailability();
@@ -68,17 +62,22 @@ export const useAuthStore = create<AuthState>((set, get) => ({
         set({ biometricEnabled: enabled });
       }
 
-      supabase.auth.onAuthStateChange(async (_event, session) => {
+      // ВАЖНО: onAuthStateChange callback дотор Supabase дуудлагыг `await` хийж
+      // БОЛОХГҮЙ — callback нь GoTrue-ийн navigator LockManager lock-ийг барьж
+      // ажилладаг тул дотор нь setSession/getSession/query дуудвал deadlock болж,
+      // setSession мөнхөд шийдэгдэхгүй (web дээр). Иймд async ажлыг setTimeout-оор
+      // lock-аас гадуур хойшлуулна.
+      supabase.auth.onAuthStateChange((_event, session) => {
         if (session) {
-          const phone = session.user.phone?.replace("+976", "") ?? "";
-          set({ session, isAuthenticated: true, phone });
-          await get().fetchDbUser(phone);
+          set({ session, isAuthenticated: true });
+          setTimeout(() => {
+            void get().fetchDbUser(session.user.phone ?? "", session.user.id);
+          }, 0);
         } else {
           set({
             session: null,
             user: null,
             isAuthenticated: false,
-            phone: "",
           });
         }
       });
@@ -87,72 +86,88 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     }
   },
 
-  verifyUser: async (phone: string, register: string) => {
-    set({ verifyLoading: true, error: null });
+  applyTokens: async (tokens) => {
+    set({ error: null });
     try {
-      const { data, error: fnError } = await supabase.functions.invoke<VerifyUserResponse>(
-        "verify-user",
-        { body: { phone, register } }
+      const { data, error } = await supabase.auth.setSession({
+        access_token: tokens.access_token,
+        refresh_token: tokens.refresh_token,
+      });
+      if (error) throw error;
+      if (!data.session) throw new Error("Session not returned");
+
+      set({ session: data.session, isAuthenticated: true, isUnlocked: true });
+      await get().fetchDbUser(
+        data.session.user.phone ?? "",
+        data.session.user.id
       );
-
-      if (fnError) throw new Error(fnError.message);
-      if (data?.error) throw new Error(data.error);
     } catch (e: any) {
+      console.error("[auth] applyTokens failed:", e?.message ?? e);
       set({ error: e.message });
       throw e;
-    } finally {
-      set({ verifyLoading: false });
     }
   },
 
-  sendOtp: async (phone: string, register: string) => {
-    set({ verifyLoading: true, error: null });
-    try {
-      const { error } = await supabase.auth.signInWithOtp({
-        phone: phone,
-        options: { data: { register_number: register.toUpperCase().trim() } },
+  fetchDbUser: async (phone: string, userId?: string) => {
+    const COLS =
+      "id, bteg_id, idcard_number, first_name, last_name, email, phone, position_name, department_name, department_id, heltes_id, heltes_name";
+
+    // Утсыг нормчилох: цифрээс бусдыг хасаад, +976 кодыг (11 оронтой бол) салгана.
+    const digits = (phone ?? "").replace(/\D/g, "");
+    const normPhone =
+      digits.length === 11 && digits.startsWith("976") ? digits.slice(3) : digits;
+
+    // 1) auth_user_id-аар хайх — хамгийн найдвартай (формат/утаснаас хамаарахгүй).
+    let data: Record<string, any> | null = null;
+    let lastError: unknown = null;
+    if (userId) {
+      const r = await supabase
+        .from("users")
+        .select(COLS)
+        .eq("auth_user_id", userId)
+        .limit(1);
+      if (r.error) lastError = r.error;
+      else data = r.data?.[0] ?? null;
+    }
+
+    // 2) Олдоогүй бол утсаар fallback (auth_user_id алдаа өгсөн ч ажиллана).
+    if (!data && normPhone) {
+      const r = await supabase.from("users").select(COLS).eq("phone", normPhone).limit(1);
+      if (r.error) lastError = r.error;
+      else data = r.data?.[0] ?? null;
+    }
+
+    if (!data) {
+      if (lastError) {
+        // Query алдаа (network/permission) — signout хийхгүй, дахин оролдох боломжтой.
+        console.error("[auth] fetchDbUser query error:", lastError);
+        set({
+          error: "Хэрэглэгчийн мэдээлэл татахад алдаа гарлаа. Дахин оролдоно уу.",
+        });
+        return;
+      }
+      // Query амжилттай ч мөр олдсонгүй → бодитоор бүртгэлгүй → force logout.
+      console.warn(
+        "[auth] no user row — userId:",
+        userId,
+        "phone:",
+        normPhone || "(empty)",
+        "→ signing out"
+      );
+      await supabase.auth.signOut();
+      await storeBiometricEnabled(false);
+      set({
+        session: null,
+        user: null,
+        isAuthenticated: false,
+        isUnlocked: false,
+        biometricEnabled: false,
+        error:
+          "Системд бүртгэлтэй ажилтны мэдээлэл олдсонгүй. Админтай холбогдоно уу.",
       });
-      if (error) throw error;
-      set({ phone });
-    } catch (e: any) {
-      set({ error: e.message });
-      throw e;
-    } finally {
-      set({ verifyLoading: false });
+      return;
     }
-  },
 
-  verifyOtp: async (phone: string, token: string) => {
-    set({ otpLoading: true, error: null });
-    try {
-      const { error } = await supabase.auth.verifyOtp({
-        phone: phone,
-        token,
-        type: "sms",
-      });
-      if (error) throw error;
-      // OTP is proof of identity — mark as unlocked so the biometric overlay doesn't appear.
-      set({ isUnlocked: true });
-    } catch (e: any) {
-      set({ error: e.message });
-      throw e;
-    } finally {
-      set({ otpLoading: false });
-    }
-  },
-
-  fetchDbUser: async (phone: string) => {
-    const { data, error } = await supabase
-      .from("users")
-      .select(
-        "id, bteg_id, first_name, last_name, email, phone, position_name, department_name, department_id, heltes_id, heltes_name"
-      )
-      .eq("phone", phone)
-      .maybeSingle();
-
-    if (error || !data) return;
-
-    // Fetch is_working from users_with_stats view
     const { data: statsData } = await supabase
       .from("users_with_stats")
       .select("is_working")
@@ -168,6 +183,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
       heltesId: data.heltes_id ?? "",
       heltesName: data.heltes_name ?? "",
       employeeId: data.bteg_id,
+      idCardNumber: data.idcard_number ?? "",
       email: data.email ?? "",
       phone: data.phone ?? "",
       isWorking: statsData?.is_working ?? false,
@@ -185,7 +201,6 @@ export const useAuthStore = create<AuthState>((set, get) => ({
       isAuthenticated: false,
       isUnlocked: false,
       biometricEnabled: false,
-      phone: "",
       error: null,
     });
   },

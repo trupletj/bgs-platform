@@ -8,7 +8,7 @@ import { S } from "@/constants/strings";
 
 export default function UnlockScreen() {
   const user = useAuthStore((s) => s.user);
-  const phone = useAuthStore((s) => s.phone);
+  const session = useAuthStore((s) => s.session);
   const setUnlocked = useAuthStore((s) => s.setUnlocked);
   const logout = useAuthStore((s) => s.logout);
   const [loading, setLoading] = useState(false);
@@ -26,8 +26,9 @@ export default function UnlockScreen() {
     }
   };
 
-  const displayName = user?.name ?? `+976${phone}`;
-  const initial = user?.name ? user.name.charAt(0) : phone.charAt(0) ?? "?";
+  const sessionPhone = session?.user?.phone ?? "";
+  const displayName = user?.name ?? (sessionPhone ? `+${sessionPhone}` : "");
+  const initial = user?.name?.charAt(0) ?? sessionPhone.charAt(0) ?? "?";
 
   return (
     <SafeAreaView className="flex-1 bg-white dark:bg-gray-950 items-center justify-center px-8">

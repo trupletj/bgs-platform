@@ -1,4 +1,4 @@
-import { Pressable, Text, View, useColorScheme, StyleSheet } from "react-native";
+import { Pressable, Text, View, StyleSheet } from "react-native";
 
 interface SegmentTabsProps {
   tabs: string[];
@@ -8,14 +8,12 @@ interface SegmentTabsProps {
 }
 
 export function SegmentTabs({ tabs, activeIndex, onChange, className = "" }: SegmentTabsProps) {
-  const dark = useColorScheme() === "dark";
-
   return (
     <View
       className={className}
       style={{
         flexDirection: "row",
-        backgroundColor: dark ? "#1f2937" : "#f3f4f6",
+        backgroundColor: "#f3f4f6",
         borderRadius: 12,
         padding: 4,
       }}
@@ -29,7 +27,7 @@ export function SegmentTabs({ tabs, activeIndex, onChange, className = "" }: Seg
             style={[
               styles.tab,
               active && {
-                backgroundColor: dark ? "#374151" : "#ffffff",
+                backgroundColor: "#ffffff",
                 ...styles.activeShadow,
               },
             ]}
@@ -38,13 +36,7 @@ export function SegmentTabs({ tabs, activeIndex, onChange, className = "" }: Seg
               style={{
                 fontSize: 14,
                 fontWeight: "500",
-                color: active
-                  ? dark
-                    ? "#ffffff"
-                    : "#111827"
-                  : dark
-                    ? "#9ca3af"
-                    : "#6b7280",
+                color: active ? "#111827" : "#6b7280",
               }}
             >
               {tab}

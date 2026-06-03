@@ -1,11 +1,17 @@
 import { View, Text, Pressable } from "react-native";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Info, AlertTriangle, CheckCircle } from "lucide-react-native";
 import { Card } from "@/components/ui/card";
 import { S } from "@/constants/strings";
 import { api } from "@/lib/api";
 import { queryKeys } from "@/lib/query-keys";
 import type { Notification } from "@/types";
+
+function localDate(offsetDays = 0): string {
+  const d = new Date();
+  d.setDate(d.getDate() + offsetDays);
+  return d.toISOString().slice(0, 10);
+}
 
 const typeIcons: Record<
   Notification["type"],
@@ -17,8 +23,8 @@ const typeIcons: Record<
 };
 
 function groupByDate(notifications: Notification[]) {
-  const today = "2026-02-16";
-  const yesterday = "2026-02-15";
+  const today = localDate(0);
+  const yesterday = localDate(-1);
 
   const groups: { title: string; items: Notification[] }[] = [
     { title: S.notifications.today, items: [] },
@@ -27,8 +33,9 @@ function groupByDate(notifications: Notification[]) {
   ];
 
   for (const n of notifications) {
-    if (n.date === today) groups[0].items.push(n);
-    else if (n.date === yesterday) groups[1].items.push(n);
+    const day = (n.date ?? "").slice(0, 10);
+    if (day === today) groups[0].items.push(n);
+    else if (day === yesterday) groups[1].items.push(n);
     else groups[2].items.push(n);
   }
 
@@ -36,12 +43,27 @@ function groupByDate(notifications: Notification[]) {
 }
 
 export function NotificationList() {
+  const queryClient = useQueryClient();
   const { data: notifications } = useQuery({
     queryKey: queryKeys.notifications.all,
     queryFn: api.getNotifications,
   });
 
+  async function onPressItem(item: Notification) {
+    if (item.read) return;
+    await api.markNotificationRead(item.id);
+    queryClient.invalidateQueries({ queryKey: queryKeys.notifications.all });
+  }
+
   const groups = notifications ? groupByDate(notifications) : [];
+
+  if (notifications && notifications.length === 0) {
+    return (
+      <Text className="text-sm text-gray-400 text-center mt-10">
+        Мэдэгдэл алга байна.
+      </Text>
+    );
+  }
 
   return (
     <View>
@@ -56,6 +78,7 @@ export function NotificationList() {
               return (
                 <Pressable
                   key={item.id}
+                  onPress={() => onPressItem(item)}
                   className={`flex-row items-start p-4 ${
                     index < group.items.length - 1
                       ? "border-b border-gray-50 dark:border-gray-800"

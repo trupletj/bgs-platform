@@ -1,19 +1,20 @@
-import { ScrollView, View, Text } from "react-native";
+import { ScrollView, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useQuery } from "@tanstack/react-query";
-import { Bell } from "lucide-react-native";
-import { AttendanceCard } from "@/components/home/attendance-card";
-import { TimeDisplay } from "@/components/home/time-display";
-import { BirthdayCard } from "@/components/home/birthday-card";
-import { ServiceGrid } from "@/components/home/service-grid";
-import { TodayHighlights } from "@/components/home/today-highlights";
-import { Avatar } from "@/components/ui/avatar";
-import { S } from "@/constants/strings";
+import { useRouter } from "expo-router";
+import { HeaderBar } from "@/components/bgs/header-bar";
+import { ShiftCard } from "@/components/bgs/shift-card";
+import { BgsServiceGrid } from "@/components/bgs/service-grid";
+import { BannerCarousel } from "@/components/bgs/banner-carousel";
+import { BgsNewsList } from "@/components/bgs/news-list";
 import { api } from "@/lib/api";
 import { queryKeys } from "@/lib/query-keys";
 import { useAuthStore } from "@/stores/auth-store";
+import { getTheme } from "@/lib/theme";
 
 export default function HomeScreen() {
+  const router = useRouter();
+  const t = getTheme(false);
   const user = useAuthStore((s) => s.user);
 
   const workerId = user?.employeeId;
@@ -29,69 +30,58 @@ export default function HomeScreen() {
     queryFn: api.getServices,
   });
 
-  const { data: files } = useQuery({
-    queryKey: queryKeys.files.all,
-    queryFn: api.getFiles,
-  });
-
   const { data: notifications } = useQuery({
     queryKey: queryKeys.notifications.all,
     queryFn: api.getNotifications,
   });
 
+  const { data: news } = useQuery({
+    queryKey: queryKeys.news.all,
+    queryFn: () => api.getNews(),
+  });
+
+  const { data: banners } = useQuery({
+    queryKey: queryKeys.banners.all,
+    queryFn: api.getBanners,
+  });
+
   const todayAttendance = attendance?.days.find((d) => d.status === "current");
+  const firstName = user?.name?.split(" ").slice(-1)[0] ?? "Ажилтан";
 
   return (
-    <SafeAreaView className="flex-1 bg-gray-50 dark:bg-gray-950">
-      <ScrollView className="flex-1" contentContainerClassName="px-4 pb-4">
-        {/* Header */}
-        <View className="flex-row items-center justify-between py-4">
-          <View className="flex-row items-center gap-3">
-            <Avatar name={user?.name ?? "U"} imageUrl={user?.avatarUrl} size="sm" />
-            <View>
-              <Text className="text-xs text-gray-500 dark:text-gray-400">
-                {S.home.greeting}
-              </Text>
-              <Text className="text-base font-bold text-gray-900 dark:text-white">
-                {user?.name ?? ""}
-              </Text>
-            </View>
-          </View>
-          <View className="w-10 h-10 rounded-full bg-white dark:bg-gray-800 items-center justify-center">
-            <Bell size={20} color="#6B7280" />
-          </View>
-        </View>
-
-        {/* Attendance */}
-        {attendance && (
-          <View className="gap-3">
-            <AttendanceCard days={attendance.days} />
-            <TimeDisplay
-              checkIn={todayAttendance?.checkIn}
-              checkOut={todayAttendance?.checkOut}
-              totalHours={attendance.totalHours}
+    <SafeAreaView edges={["top"]} style={{ flex: 1, backgroundColor: t.bg }}>
+      <ScrollView
+        style={{ flex: 1 }}
+        contentContainerStyle={{ paddingBottom: 24 }}
+        showsVerticalScrollIndicator={false}
+      >
+        <HeaderBar
+          t={t}
+          greeting="Өглөөний мэнд,"
+          name={firstName}
+          hasUnread={notifications?.some((n) => !n.read) ?? false}
+          onBell={() => router.push("/notifications")}
+        />
+        <View style={{ paddingHorizontal: 20 }}>
+          <ShiftCard
+            t={t}
+            isWorking={user?.isWorking ?? false}
+            checkInTime={todayAttendance?.checkIn}
+            shiftLabel={user?.role || "Өнөөдрийн ээлж"}
+            department={user?.department}
+            onQR={() => router.push("/(tabs)/scan")}
+          />
+          {services && <BgsServiceGrid t={t} services={services} />}
+          <BannerCarousel t={t} banners={banners} />
+          {news && (
+            <BgsNewsList
+              t={t}
+              items={news}
+              onSeeAll={() => router.push("/news")}
+              onItemPress={(id) => router.push(`/news/${id}` as never)}
             />
-          </View>
-        )}
-
-        {/* Birthday */}
-        <View className="mt-3">
-          <BirthdayCard />
+          )}
         </View>
-
-        {/* Services Grid */}
-        {services && (
-          <View className="mt-3">
-            <ServiceGrid services={services} />
-          </View>
-        )}
-
-        {/* Today Highlights */}
-        {files && notifications && (
-          <View className="mt-3">
-            <TodayHighlights files={files} notifications={notifications} />
-          </View>
-        )}
       </ScrollView>
     </SafeAreaView>
   );

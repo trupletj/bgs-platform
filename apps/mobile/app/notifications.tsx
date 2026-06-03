@@ -1,13 +1,22 @@
 import { ScrollView, View, Text, Pressable } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
+import { useQueryClient } from "@tanstack/react-query";
 import { SegmentTabs } from "@/components/ui/segment-tabs";
 import { NotificationList } from "@/components/notifications/notification-list";
 import { NewsList } from "@/components/notifications/news-list";
 import { S } from "@/constants/strings";
+import { api } from "@/lib/api";
+import { queryKeys } from "@/lib/query-keys";
 import { useAppStore } from "@/stores/app-store";
 
 export default function NotificationsScreen() {
   const { notificationsTab, setNotificationsTab } = useAppStore();
+  const queryClient = useQueryClient();
+
+  async function onMarkAllRead() {
+    await api.markAllNotificationsRead();
+    queryClient.invalidateQueries({ queryKey: queryKeys.notifications.all });
+  }
 
   return (
     <SafeAreaView className="flex-1 bg-gray-50 dark:bg-gray-950">
@@ -16,7 +25,7 @@ export default function NotificationsScreen() {
           {S.notifications.title}
         </Text>
         {notificationsTab === 0 && (
-          <Pressable>
+          <Pressable onPress={onMarkAllRead}>
             <Text className="text-sm text-primary font-medium">
               {S.notifications.markAllRead}
             </Text>

@@ -15,6 +15,9 @@ export const queryKeys = {
   files: {
     all: ["files"] as const,
   },
+  banners: {
+    all: ["banners"] as const,
+  },
   notifications: {
     all: ["notifications"] as const,
   },

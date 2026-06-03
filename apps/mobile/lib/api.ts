@@ -1,13 +1,7 @@
 import { supabase } from "@/lib/supabase";
-import {
-  mockUser,
-  mockServiceCategories,
-  mockServices,
-  mockNews,
-  mockFiles,
-  mockNotifications,
-} from "@/mock/data";
-import type { AttendanceDay, AttendanceDetailDay, AttendanceWeek, EmployeeContact, LeaveType, LeaveRequest, LeaveRequestRow } from "@/types";
+import { mockUser, mockFiles } from "@/mock/data";
+import { SERVICES, SERVICE_CATEGORIES } from "@/constants/services";
+import type { AttendanceDay, AttendanceDetailDay, AttendanceWeek, Banner, EmployeeContact, LeaveType, LeaveRequest, LeaveRequestRow, NewsItem, Notification } from "@/types";
 import { S } from "@/constants/strings";
 
 const delay = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
@@ -123,18 +117,75 @@ export const api = {
   },
 
   getServices: async () => {
-    await delay(200);
-    return mockServices;
+    return SERVICES;
   },
 
   getServiceCategories: async () => {
-    await delay(200);
-    return mockServiceCategories;
+    return SERVICE_CATEGORIES;
   },
 
-  getNews: async () => {
-    await delay(500);
-    return mockNews;
+  getNews: async (limit = 20): Promise<NewsItem[]> => {
+    const { data, error } = await supabase
+      .from("news")
+      .select("id, title, description, body, image_url, likes, published_at")
+      .eq("is_active", true)
+      .not("published_at", "is", null)
+      .order("published_at", { ascending: false })
+      .limit(limit);
+
+    if (error || !data) return [];
+
+    return data.map((row: any) => ({
+      id: String(row.id),
+      title: row.title ?? "",
+      description: row.description ?? "",
+      body: row.body ?? undefined,
+      imageUrl: row.image_url ?? undefined,
+      date: row.published_at ?? "",
+      likes: row.likes ?? 0,
+    }));
+  },
+
+  getNewsById: async (id: string): Promise<NewsItem | null> => {
+    const { data, error } = await supabase
+      .from("news")
+      .select("id, title, description, body, image_url, likes, published_at")
+      .eq("id", Number(id))
+      .maybeSingle();
+
+    if (error || !data) return null;
+
+    return {
+      id: String(data.id),
+      title: data.title ?? "",
+      description: data.description ?? "",
+      body: data.body ?? undefined,
+      imageUrl: data.image_url ?? undefined,
+      date: data.published_at ?? "",
+      likes: data.likes ?? 0,
+    };
+  },
+
+  getBanners: async (): Promise<Banner[]> => {
+    const { data, error } = await supabase
+      .from("banners")
+      .select("id, title, subtitle, tag, image_url, link_url, news_id, sort_order, published_at")
+      .eq("is_active", true)
+      .not("published_at", "is", null)
+      .order("sort_order", { ascending: true })
+      .order("created_at", { ascending: false });
+
+    if (error || !data) return [];
+
+    return data.map((row: any) => ({
+      id: String(row.id),
+      title: row.title ?? "",
+      subtitle: row.subtitle ?? undefined,
+      tag: row.tag ?? undefined,
+      imageUrl: row.image_url ?? "",
+      linkUrl: row.link_url ?? undefined,
+      newsId: row.news_id != null ? String(row.news_id) : undefined,
+    }));
   },
 
   getFiles: async () => {
@@ -142,9 +193,38 @@ export const api = {
     return mockFiles;
   },
 
-  getNotifications: async () => {
-    await delay(300);
-    return mockNotifications;
+  // RLS-ээр зөвхөн нэвтэрсэн хэрэглэгчийн өөрийн мэдэгдэл буцна.
+  getNotifications: async (): Promise<Notification[]> => {
+    const { data, error } = await supabase
+      .from("notifications")
+      .select("id, title, message, type, is_read, created_at")
+      .order("created_at", { ascending: false })
+      .limit(50);
+
+    if (error || !data) return [];
+
+    return data.map((row: any) => ({
+      id: String(row.id),
+      title: row.title ?? "",
+      message: row.message ?? "",
+      date: row.created_at ?? "",
+      read: row.is_read ?? false,
+      type: (row.type as Notification["type"]) ?? "info",
+    }));
+  },
+
+  markNotificationRead: async (id: string): Promise<void> => {
+    await supabase
+      .from("notifications")
+      .update({ is_read: true })
+      .eq("id", Number(id));
+  },
+
+  markAllNotificationsRead: async (): Promise<void> => {
+    await supabase
+      .from("notifications")
+      .update({ is_read: true })
+      .eq("is_read", false);
   },
 
   getEmployeeContacts: async (departmentId: string, heltesId: string): Promise<EmployeeContact[]> => {

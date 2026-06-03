@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { ActivityIndicator, View, Text, Pressable } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useRouter } from "expo-router";
@@ -10,11 +10,15 @@ const MINI_APP_URL =
   process.env.EXPO_PUBLIC_BGS_ATTENDANCE_URL ??
   "https://bgs-attendance.vercel.app";
 
+type Tokens = { at: string; rt: string; exp?: number };
+
 export default function AttendanceScreenWeb() {
   const router = useRouter();
-  const [ready, setReady] = useState(false);
+  const [tokens, setTokens] = useState<Tokens | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
+  const iframeRef = useRef<HTMLIFrameElement | null>(null);
 
+  // Initial: read supabase session and pass it to the iframe via URL hash.
   useEffect(() => {
     let cancelled = false;
     void (async () => {
@@ -28,11 +32,35 @@ export default function AttendanceScreenWeb() {
         setLoadError("Session олдсонгүй. Дахин нэвтэрнэ үү.");
         return;
       }
-      setReady(true);
+      setTokens({
+        at: data.session.access_token,
+        rt: data.session.refresh_token,
+        exp: data.session.expires_at,
+      });
     })();
     return () => {
       cancelled = true;
     };
+  }, []);
+
+  // Refresh: when supabase rotates tokens, postMessage them to the iframe.
+  useEffect(() => {
+    const { data: sub } = supabase.auth.onAuthStateChange((_event, session) => {
+      const w = iframeRef.current?.contentWindow;
+      if (!w || !session) return;
+      w.postMessage(
+        {
+          type: "bgs-attendance:refresh-tokens",
+          tokens: {
+            access_token: session.access_token,
+            refresh_token: session.refresh_token,
+            expires_at: session.expires_at,
+          },
+        },
+        "*",
+      );
+    });
+    return () => sub.subscription.unsubscribe();
   }, []);
 
   if (loadError) {
@@ -48,13 +76,18 @@ export default function AttendanceScreenWeb() {
     );
   }
 
-  if (!ready) {
+  if (!tokens) {
     return (
       <SafeAreaView className="flex-1 items-center justify-center bg-gray-50 dark:bg-gray-950">
         <ActivityIndicator />
       </SafeAreaView>
     );
   }
+
+  const hash = `at=${encodeURIComponent(tokens.at)}&rt=${encodeURIComponent(
+    tokens.rt,
+  )}${tokens.exp ? `&exp=${tokens.exp}` : ""}`;
+  const src = `${MINI_APP_URL}/?embed=1&platform=web#${hash}`;
 
   return (
     <SafeAreaView className="flex-1 bg-gray-50 dark:bg-gray-950">
@@ -72,7 +105,8 @@ export default function AttendanceScreenWeb() {
       <View style={{ flex: 1 }}>
         {/* @ts-expect-error iframe is web-only */}
         <iframe
-          src={`${MINI_APP_URL}/?embed=1&platform=web`}
+          ref={iframeRef}
+          src={src}
           style={{ width: "100%", height: "100%", border: 0 }}
         />
       </View>

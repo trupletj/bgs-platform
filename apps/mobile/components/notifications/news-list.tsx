@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { View } from "react-native";
 import { useQuery } from "@tanstack/react-query";
+import { router } from "expo-router";
 import { SearchBar } from "@/components/ui/search-bar";
 import { NewsCard } from "@/components/services/news-card";
 import { S } from "@/constants/strings";
@@ -12,7 +13,7 @@ export function NewsList() {
 
   const { data: news } = useQuery({
     queryKey: queryKeys.news.all,
-    queryFn: api.getNews,
+    queryFn: () => api.getNews(),
   });
 
   const filtered = news?.filter((item) =>
@@ -28,7 +29,11 @@ export function NewsList() {
         className="mb-3"
       />
       {filtered?.map((item) => (
-        <NewsCard key={item.id} item={item} />
+        <NewsCard
+          key={item.id}
+          item={item}
+          onPress={() => router.push(`/news/${item.id}` as never)}
+        />
       ))}
     </View>
   );

@@ -1,4 +1,4 @@
-import { Pressable, Text, View } from "react-native";
+import { Alert, Pressable, Text, View } from "react-native";
 import { useRouter } from "expo-router";
 import { getServiceIcon } from "@/lib/icon-map";
 import { Badge } from "@/components/ui/badge";
@@ -15,7 +15,14 @@ export function ServiceGridItem({ item, columns = 3 }: ServiceGridItemProps) {
   const widthClass = columns === 4 ? "w-1/4" : "w-1/3";
 
   return (
-    <Pressable className={`${widthClass} items-center py-3`} onPress={() => item.route && router.push(item.route as any)}>
+    <Pressable
+      className={`${widthClass} items-center py-3`}
+      onPress={() =>
+        item.route
+          ? router.push(item.route as any)
+          : Alert.alert(item.title, "Энэ үйлчилгээ удахгүй нэмэгдэнэ.")
+      }
+    >
       <View className="relative">
         <View
           className={`w-12 h-12 rounded-2xl items-center justify-center mb-2 ${

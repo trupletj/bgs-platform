@@ -1,15 +1,25 @@
 import "../global.css";
 
-import { useEffect } from "react";
-import { DarkTheme, DefaultTheme, ThemeProvider } from "@react-navigation/native";
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { useEffect, useState } from "react";
+import { Platform, View } from "react-native";
+import { DefaultTheme, ThemeProvider } from "@react-navigation/native";
+import {
+  QueryClient,
+  QueryClientProvider,
+  useQueryClient,
+} from "@tanstack/react-query";
 import { Stack, useRouter, useSegments } from "expo-router";
 import { StatusBar } from "expo-status-bar";
 import * as SplashScreen from "expo-splash-screen";
+import { useFonts, SpaceGrotesk_700Bold } from "@expo-google-fonts/space-grotesk";
 import "react-native-reanimated";
 
-import { useColorScheme } from "@/hooks/use-color-scheme";
 import { useAuthStore } from "@/stores/auth-store";
+import { LoadingScreen } from "@/components/bgs/loading-screen";
+import { api } from "@/lib/api";
+import { queryKeys } from "@/lib/query-keys";
+
+const TABLET_MAX_WIDTH = 820;
 
 SplashScreen.preventAutoHideAsync();
 
@@ -24,7 +34,7 @@ function AuthGate({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     if (isLoading) return;
 
-    const inAuthGroup = segments[0] === "login" || segments[0] === "otp";
+    const inAuthGroup = segments[0] === "login";
     const onUnlock = segments[0] === "unlock";
     const needsUnlock = isAuthenticated && biometricEnabled && !isUnlocked;
 
@@ -40,44 +50,121 @@ function AuthGate({ children }: { children: React.ReactNode }) {
   return <>{children}</>;
 }
 
+/**
+ * Нэвтэрсний дараа хэрэглэгчийн мэдээлэл + нүүрний шаардлагатай датаг кэшлэх
+ * хүртэл loading screen-ийг (Stack дээр overlay) харуулна. Бэлэн болмогц алга.
+ */
+function BootGate({ children }: { children: React.ReactNode }) {
+  const isAuthenticated = useAuthStore((s) => s.isAuthenticated);
+  const isUnlocked = useAuthStore((s) => s.isUnlocked);
+  const biometricEnabled = useAuthStore((s) => s.biometricEnabled);
+  const isLoading = useAuthStore((s) => s.isLoading);
+  const user = useAuthStore((s) => s.user);
+  const error = useAuthStore((s) => s.error);
+  const queryClient = useQueryClient();
+  const [readyForUser, setReadyForUser] = useState<string | null>(null);
+
+  // Auth + biometric давсан, үндсэн апп руу орох гэж буй төлөв.
+  const passedAuth = isAuthenticated && (!biometricEnabled || isUnlocked);
+
+  useEffect(() => {
+    if (!passedAuth || !user) return;
+    let cancelled = false;
+    const userId = user.id;
+    void (async () => {
+      await Promise.allSettled([
+        queryClient.prefetchQuery({
+          queryKey: queryKeys.attendance.week(user.employeeId),
+          queryFn: () => api.getAttendance(user.employeeId),
+        }),
+        queryClient.prefetchQuery({
+          queryKey: queryKeys.notifications.all,
+          queryFn: api.getNotifications,
+        }),
+        queryClient.prefetchQuery({
+          queryKey: queryKeys.news.all,
+          queryFn: () => api.getNews(),
+        }),
+        queryClient.prefetchQuery({
+          queryKey: queryKeys.banners.all,
+          queryFn: api.getBanners,
+        }),
+      ]);
+      if (!cancelled) setReadyForUser(userId);
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [passedAuth, user?.id, user?.employeeId, queryClient]);
+
+  const ready = user != null && readyForUser === user.id;
+  const showLoading = !isLoading && passedAuth && !ready;
+
+  return (
+    <>
+      {children}
+      {showLoading && <LoadingScreen error={!user && error ? error : undefined} />}
+    </>
+  );
+}
+
 export default function RootLayout() {
-  const colorScheme = useColorScheme();
   const initialize = useAuthStore((s) => s.initialize);
   const isLoading = useAuthStore((s) => s.isLoading);
+  const [fontsLoaded] = useFonts({ SpaceGrotesk_700Bold });
 
   useEffect(() => {
     initialize();
   }, [initialize]);
 
   useEffect(() => {
-    if (!isLoading) {
+    if (!isLoading && fontsLoaded) {
       SplashScreen.hideAsync();
     }
-  }, [isLoading]);
+  }, [isLoading, fontsLoaded]);
+
+  if (!fontsLoaded) return null;
+
+  const webContainerStyle =
+    Platform.OS === "web"
+      ? {
+          flex: 1,
+          width: "100%" as const,
+          maxWidth: TABLET_MAX_WIDTH,
+          alignSelf: "center" as const,
+          backgroundColor: "#EEF0F3",
+        }
+      : { flex: 1 };
 
   return (
     <QueryClientProvider client={queryClient}>
-      <ThemeProvider value={colorScheme === "dark" ? DarkTheme : DefaultTheme}>
-        <AuthGate>
-          <Stack>
-            <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
-            <Stack.Screen
-              name="login"
-              options={{ headerShown: false, gestureEnabled: false }}
-            />
-            <Stack.Screen name="otp" options={{ headerShown: false }} />
-            <Stack.Screen
-              name="unlock"
-              options={{ headerShown: false, gestureEnabled: false }}
-            />
-            <Stack.Screen name="services" options={{ headerShown: false }} />
-            <Stack.Screen
-              name="modal"
-              options={{ presentation: "modal", title: "Modal" }}
-            />
-          </Stack>
-        </AuthGate>
-        <StatusBar style="auto" />
+      <ThemeProvider value={DefaultTheme}>
+        <View style={webContainerStyle}>
+          <AuthGate>
+            <BootGate>
+              <Stack>
+                <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
+                <Stack.Screen
+                  name="login"
+                  options={{ headerShown: false, gestureEnabled: false }}
+                />
+                <Stack.Screen
+                  name="unlock"
+                  options={{ headerShown: false, gestureEnabled: false }}
+                />
+                <Stack.Screen name="services" options={{ headerShown: false }} />
+                <Stack.Screen name="profile" options={{ headerShown: false }} />
+                <Stack.Screen name="news" options={{ headerShown: false }} />
+                <Stack.Screen name="notifications" options={{ headerShown: false }} />
+                <Stack.Screen
+                  name="modal"
+                  options={{ presentation: "modal", title: "Modal" }}
+                />
+              </Stack>
+            </BootGate>
+          </AuthGate>
+        </View>
+        <StatusBar style="dark" />
       </ThemeProvider>
     </QueryClientProvider>
   );
