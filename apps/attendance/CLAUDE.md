@@ -21,7 +21,7 @@ Standalone Next.js 16 mini-app showing a worker's **roster status** (shift + cyc
 - **Next.js 16** (App Router, Turbopack), React 19, TypeScript
 - **Tailwind v4** + shadcn/ui (new-york) primitives (Card / Badge / Button / Alert / Skeleton)
 - **@supabase/ssr** with cookie-based session
-- **lucide-react** for icons only (Sun, Moon, BedDouble, CalendarDays, PlaneLanding, PlaneTakeoff, AlertCircle, Clock, RefreshCcw, FlaskConical)
+- **lucide-react** for icons only (Sun, Moon, BedDouble, CalendarDays, PlaneLanding, PlaneTakeoff, AlertCircle, Clock, RefreshCcw, FlaskConical, Loader2)
 - No state library, no client-side data fetching — everything is RSC + server actions
 
 ### Page
@@ -39,13 +39,22 @@ Single route `/` (`app/page.tsx`). Forced `dynamic = "force-dynamic"` so RSC re-
 ```
 URL ?scenario=… present → return dummy via getDummyRosterStatus(scenario)
 otherwise:
-  Promise.all([
-    getMyRosterOverview(),     // bgs_attendance RPC
-    getCurrentWorkerProfile()  // public.users by phone
-  ])
-  if RPC returns data → render real
-  else → dummy + profile worker override (so name still resolves)
+  supabase.auth.getUser()
+  if no user (no session yet) → <SessionPending /> spinner
+                                 (SessionBridge will setSession + router.refresh)
+  else:
+    Promise.all([
+      getMyRosterOverview(),     // bgs_attendance RPC
+      getCurrentWorkerProfile()  // public.users by phone
+    ])
+    if RPC returns data → render real
+    else → dummy + profile worker override (so name still resolves)
 ```
+
+`SessionPending` (`components/attendance/session-pending.tsx`, client): centered
+Loader2 spinner + "Холбогдож байна…". After 8s without a refresh, swaps to an
+AlertCircle "Нэвтрэх шаардлагатай" message. Replaced by real content as soon as
+the bridge applies tokens and triggers `router.refresh()`.
 
 ### Embedding contract (iframe / WebView)
 
@@ -56,7 +65,8 @@ otherwise:
   3. `postMessage({ type: "bgs-attendance:refresh-tokens", tokens })` from parent
   Calls `supabase.auth.setSession(...)` → `router.refresh()` so the RSC re-renders with cookies.
 - `IframeResizer` posts `{ type: "bgs-attendance:height", height }` to parent on every ResizeObserver tick.
-- `NEXT_PUBLIC_PARENT_ORIGINS` env whitelists parent origins (currently `https://bgs.mn`, `https://bgs-mobile-app.vercel.app`, plus localhost dev URLs).
+- `NEXT_PUBLIC_PARENT_ORIGINS` env → CSP `frame-ancestors` whitelist (next.config `headers()`). **Заавал `https://m.bgs.mn`-ийг оруулна** (mobile shell-ийн production домэйн), эс бөгөөс iframe "refused to connect". Утга хоосон бол `frame-ancestors 'self'`. Vercel дээр env өөрчилсний дараа **redeploy заавал** (build-time).
+  - Vercel project: **`bgs-attendance`** → a.bgs.mn / bgs-attendance.vercel.app. (Платформын deploy topology + REST API gotcha: shared-context memory `bgs-vercel-deploy`.)
 
 ### Backend data flow
 

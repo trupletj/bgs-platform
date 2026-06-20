@@ -5,11 +5,15 @@ import { AttendanceHeroStatus } from "@/components/attendance/attendance-hero-st
 import { AttendanceRosterCycle } from "@/components/attendance/attendance-roster-cycle";
 import { AttendanceRosterCalendar } from "@/components/attendance/attendance-roster-calendar";
 import { ScenarioSwitcher } from "@/components/attendance/scenario-switcher";
+import { MiniAppTabs } from "@/components/attendance/mini-app-tabs";
+import { SessionPending } from "@/components/attendance/session-pending";
+import { ShiftExchangeTab } from "@/components/shift-exchange/shift-exchange-tab";
 import {
   getDummyRosterStatus,
   type ScenarioKey,
 } from "@/lib/dummy-attendance";
 import type { RosterStatusOverview } from "@/types/attendance";
+import { createClient } from "@/utils/supabase/server";
 
 export const dynamic = "force-dynamic";
 
@@ -26,6 +30,18 @@ export default async function AttendancePage({
     return renderPage(overview, active);
   }
 
+  // Session байхгүй бол dummy биш — хүлээлтийн spinner.
+  // SessionBridge parent-аас токен авч router.refresh() хийхэд RSC дахин render
+  // болж бодит дата руу шилжинэ.
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+
+  if (!user) {
+    return <SessionPending />;
+  }
+
   // Жинхэнэ RPC + profile зэрэг
   const [real, profile] = await Promise.all([
     getMyRosterOverview(),
@@ -36,7 +52,7 @@ export default async function AttendancePage({
     return renderPage(real, undefined);
   }
 
-  // Session байхгүй / дата хоосон → dummy + profile fallback
+  // Session байгаа ч дата хоосон → dummy + profile fallback
   const dummy = getDummyRosterStatus(undefined);
   const overview: RosterStatusOverview = {
     ...dummy.overview,
@@ -50,14 +66,19 @@ function renderPage(
   activeScenario: ScenarioKey | undefined,
 ) {
   return (
-    <div className="mx-auto flex w-full max-w-md flex-col gap-4 p-4">
-      <AttendanceHeader worker={overview.worker} />
-      <AttendanceHeroStatus today={overview.today} cycle={overview.cycle} />
-      <AttendanceRosterCycle cycle={overview.cycle} />
-      <AttendanceRosterCalendar calendar={overview.calendar} />
-      {activeScenario !== undefined && (
-        <ScenarioSwitcher current={activeScenario} />
-      )}
-    </div>
+    <MiniAppTabs
+      attendanceSlot={
+        <>
+          <AttendanceHeader worker={overview.worker} />
+          <AttendanceHeroStatus today={overview.today} cycle={overview.cycle} />
+          <AttendanceRosterCycle cycle={overview.cycle} />
+          <AttendanceRosterCalendar calendar={overview.calendar} />
+          {activeScenario !== undefined && (
+            <ScenarioSwitcher current={activeScenario} />
+          )}
+        </>
+      }
+      shiftExchangeSlot={<ShiftExchangeTab />}
+    />
   );
 }
