@@ -1,10 +1,46 @@
 import { supabase } from "@/lib/supabase";
 import { mockUser, mockFiles } from "@/mock/data";
 import { SERVICES, SERVICE_CATEGORIES } from "@/constants/services";
-import type { AttendanceDay, AttendanceDetailDay, AttendanceWeek, Banner, EmployeeContact, LeaveType, LeaveRequest, LeaveRequestRow, NewsItem, Notification } from "@/types";
+import type { AttendanceDay, AttendanceDetailDay, AttendanceWeek, ChatMessage, ChatThread, Contact, ContactRequest, DirectoryUser, GroupDetail, GroupJoinRequest, GroupMember, GroupVisibility, OrgGroup, PublicGroup, LeaveType, LeaveRequest, LeaveRequestRow } from "@/types";
 import { S } from "@/constants/strings";
 
 const delay = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+
+/** `mobile` schema-д хандах товч туслах (чатын backend) */
+const mobileDb = () => supabase.schema("mobile" as never);
+
+function formatChatTime(ts: string | null): string {
+  if (!ts) return "";
+  const d = new Date(ts);
+  const now = new Date();
+  const sameDay = d.toDateString() === now.toDateString();
+  if (sameDay) {
+    return `${d.getHours().toString().padStart(2, "0")}:${d
+      .getMinutes()
+      .toString()
+      .padStart(2, "0")}`;
+  }
+  const yest = new Date(now);
+  yest.setDate(now.getDate() - 1);
+  if (d.toDateString() === yest.toDateString()) return "Өчигдөр";
+  return `${d.getMonth() + 1}/${d.getDate()}`;
+}
+
+function mapDirectoryUser(r: any) {
+  return {
+    id: String(r.id),
+    name: r.name ?? "",
+    positionName: r.position_name ?? "",
+    heltesName: r.heltes_name ?? "",
+    phone: r.phone ?? "",
+    contactStatus: (r.contact_status ?? "none") as
+      | "none"
+      | "pending_out"
+      | "pending_in"
+      | "accepted"
+      | "self",
+  };
+}
 
 function formatTime(timestamp: string | null): string | undefined {
   if (!timestamp) return undefined;
@@ -32,6 +68,247 @@ export const api = {
   getProfile: async () => {
     await delay(300);
     return mockUser;
+  },
+
+  // Чат — `mobile` schema дээрх бодит backend (RPC + Realtime).
+  getChatThreads: async (): Promise<ChatThread[]> => {
+    const { data, error } = await mobileDb().rpc("get_conversations");
+    if (error || !data) return [];
+    return (data as any[]).map((row) => ({
+      id: String(row.id),
+      name: row.name ?? "Чат",
+      lastMessage: row.last_message ?? "",
+      time: formatChatTime(row.last_message_at),
+      unread: row.unread ?? 0,
+      isGroup: row.is_group ?? false,
+      isOfficial: row.is_official ?? false,
+      muted: row.is_muted ?? false,
+    }));
+  },
+
+  getChatMessages: async (
+    threadId: string,
+    opts?: { limit?: number; before?: string }
+  ): Promise<ChatMessage[]> => {
+    const { data, error } = await mobileDb().rpc("get_messages", {
+      p_conversation_id: Number(threadId),
+      p_limit: opts?.limit ?? 30,
+      p_before: opts?.before ?? null,
+    });
+    if (error || !data) return [];
+    return (data as any[]).map((row) => ({
+      id: String(row.id),
+      threadId,
+      text: row.body ?? "",
+      fromMe: row.is_mine ?? false,
+      time: formatChatTime(row.created_at),
+      createdAt: row.created_at ?? undefined,
+      senderName: row.sender_name ?? undefined,
+      senderStaff: row.sender_staff ?? undefined,
+      actions: Array.isArray(row.actions) ? (row.actions as any[]) : undefined,
+      kind: row.kind ?? "text",
+      attachmentUrl: row.attachment_url ?? undefined,
+      attachmentName: row.attachment_name ?? undefined,
+      attachmentMime: row.attachment_mime ?? undefined,
+    }));
+  },
+
+  sendChatMessage: async (threadId: string, body: string): Promise<ChatMessage | null> => {
+    const { data, error } = await mobileDb().rpc("send_message", {
+      p_conversation_id: Number(threadId),
+      p_body: body,
+    });
+    const row = (data as any[])?.[0];
+    if (error || !row) return null;
+    return {
+      id: String(row.id),
+      threadId,
+      text: row.body ?? "",
+      fromMe: true,
+      time: formatChatTime(row.created_at),
+    };
+  },
+
+  markChatRead: async (threadId: string): Promise<void> => {
+    await mobileDb().rpc("mark_read", { p_conversation_id: Number(threadId) });
+  },
+
+  // Зураг/файл хавсралт upload хийгээд мессеж илгээх
+  sendChatMedia: async (
+    threadId: string,
+    file: { uri: string; name: string; mime: string; kind: "image" | "file" }
+  ): Promise<void> => {
+    const ext = file.name.includes(".")
+      ? file.name.split(".").pop()
+      : file.kind === "image"
+        ? "jpg"
+        : "bin";
+    const path = `${threadId}/${Date.now()}-${Math.random().toString(36).slice(2)}.${ext}`;
+    const resp = await fetch(file.uri);
+    const blob = await resp.blob();
+    const { error: upErr } = await supabase.storage
+      .from("chat-media")
+      .upload(path, blob, { contentType: file.mime, upsert: false });
+    if (upErr) throw new Error(upErr.message);
+    const { data: pub } = supabase.storage.from("chat-media").getPublicUrl(path);
+    const { error } = await mobileDb().rpc("send_media_message", {
+      p_conversation_id: Number(threadId),
+      p_body: "",
+      p_url: pub.publicUrl,
+      p_name: file.name,
+      p_mime: file.mime,
+      p_kind: file.kind,
+    });
+    if (error) throw new Error(error.message);
+  },
+
+  createDirectConversation: async (userId: string): Promise<string | null> => {
+    const { data, error } = await mobileDb().rpc("create_direct_conversation", {
+      p_other_user_id: userId,
+    });
+    if (error) throw new Error(error.message);
+    return data == null ? null : String(data);
+  },
+
+  createGroupConversation: async (
+    title: string,
+    memberIds: string[],
+    visibility: GroupVisibility = "private"
+  ): Promise<string | null> => {
+    const { data, error } = await mobileDb().rpc("create_group_conversation", {
+      p_title: title,
+      p_member_ids: memberIds,
+      p_visibility: visibility,
+    });
+    if (error) throw new Error(error.message);
+    return data == null ? null : String(data);
+  },
+
+  // ---- Группын нээлттэй/хаалттай + нэгдэх хүсэлт ----
+  searchPublicGroups: async (query: string): Promise<PublicGroup[]> => {
+    const { data, error } = await mobileDb().rpc("search_public_groups", { p_query: query });
+    if (error || !data) return [];
+    return (data as any[]).map((r) => ({
+      id: String(r.id),
+      name: r.name ?? "Группа",
+      memberCount: r.member_count ?? 0,
+      joinStatus: (r.join_status ?? "none") as PublicGroup["joinStatus"],
+    }));
+  },
+
+  requestJoinGroup: async (conversationId: string): Promise<string | null> => {
+    const { data, error } = await mobileDb().rpc("request_join_group", {
+      p_conversation_id: Number(conversationId),
+    });
+    if (error) return null;
+    return data as string;
+  },
+
+  getGroupDetail: async (conversationId: string): Promise<GroupDetail | null> => {
+    const { data, error } = await mobileDb().rpc("get_group_detail", {
+      p_conversation_id: Number(conversationId),
+    });
+    const row = (data as any[])?.[0];
+    if (error || !row) return null;
+    return {
+      id: String(row.id),
+      title: row.title ?? "",
+      visibility: (row.visibility ?? "private") as GroupVisibility,
+      isAdmin: row.is_admin ?? false,
+      memberCount: row.member_count ?? 0,
+    };
+  },
+
+  getGroupMembers: async (conversationId: string): Promise<GroupMember[]> => {
+    const { data, error } = await mobileDb().rpc("get_group_members", {
+      p_conversation_id: Number(conversationId),
+    });
+    if (error || !data) return [];
+    return (data as any[]).map((r) => ({
+      userId: String(r.user_id),
+      name: r.name ?? "",
+      positionName: r.position_name ?? "",
+      role: r.role ?? "member",
+    }));
+  },
+
+  getGroupJoinRequests: async (conversationId: string): Promise<GroupJoinRequest[]> => {
+    const { data, error } = await mobileDb().rpc("get_group_join_requests", {
+      p_conversation_id: Number(conversationId),
+    });
+    if (error || !data) return [];
+    return (data as any[]).map((r) => ({
+      userId: String(r.user_id),
+      name: r.name ?? "",
+      positionName: r.position_name ?? "",
+      createdAt: r.created_at ?? "",
+    }));
+  },
+
+  respondGroupJoinRequest: async (
+    conversationId: string,
+    userId: string,
+    accept: boolean
+  ): Promise<void> => {
+    await mobileDb().rpc("respond_group_join_request", {
+      p_conversation_id: Number(conversationId),
+      p_user_id: userId,
+      p_accept: accept,
+    });
+  },
+
+  setGroupVisibility: async (
+    conversationId: string,
+    visibility: GroupVisibility
+  ): Promise<void> => {
+    await mobileDb().rpc("set_group_visibility", {
+      p_conversation_id: Number(conversationId),
+      p_visibility: visibility,
+    });
+  },
+
+  addGroupMember: async (conversationId: string, userId: string): Promise<void> => {
+    const { error } = await mobileDb().rpc("add_group_member", {
+      p_conversation_id: Number(conversationId),
+      p_user_id: userId,
+    });
+    if (error) throw new Error(error.message);
+  },
+
+  leaveGroup: async (conversationId: string): Promise<void> => {
+    const { error } = await mobileDb().rpc("leave_group", {
+      p_conversation_id: Number(conversationId),
+    });
+    if (error) throw new Error(error.message);
+  },
+
+  removeGroupMember: async (conversationId: string, userId: string): Promise<void> => {
+    const { error } = await mobileDb().rpc("remove_group_member", {
+      p_conversation_id: Number(conversationId),
+      p_user_id: userId,
+    });
+    if (error) throw new Error(error.message);
+  },
+
+  setGroupTitle: async (conversationId: string, title: string): Promise<void> => {
+    const { error } = await mobileDb().rpc("set_group_title", {
+      p_conversation_id: Number(conversationId),
+      p_title: title,
+    });
+    if (error) throw new Error(error.message);
+  },
+
+  setMute: async (conversationId: string, muted: boolean): Promise<void> => {
+    await mobileDb().rpc("set_mute", {
+      p_conversation_id: Number(conversationId),
+      p_muted: muted,
+    });
+  },
+
+  hideConversation: async (conversationId: string): Promise<void> => {
+    await mobileDb().rpc("hide_conversation", {
+      p_conversation_id: Number(conversationId),
+    });
   },
 
   getAttendance: async (workerId: string): Promise<AttendanceWeek> => {
@@ -124,134 +401,78 @@ export const api = {
     return SERVICE_CATEGORIES;
   },
 
-  getNews: async (limit = 20): Promise<NewsItem[]> => {
-    const { data, error } = await supabase
-      .from("news")
-      .select("id, title, description, body, image_url, likes, published_at")
-      .eq("is_active", true)
-      .not("published_at", "is", null)
-      .order("published_at", { ascending: false })
-      .limit(limit);
-
-    if (error || !data) return [];
-
-    return data.map((row: any) => ({
-      id: String(row.id),
-      title: row.title ?? "",
-      description: row.description ?? "",
-      body: row.body ?? undefined,
-      imageUrl: row.image_url ?? undefined,
-      date: row.published_at ?? "",
-      likes: row.likes ?? 0,
-    }));
-  },
-
-  getNewsById: async (id: string): Promise<NewsItem | null> => {
-    const { data, error } = await supabase
-      .from("news")
-      .select("id, title, description, body, image_url, likes, published_at")
-      .eq("id", Number(id))
-      .maybeSingle();
-
-    if (error || !data) return null;
-
-    return {
-      id: String(data.id),
-      title: data.title ?? "",
-      description: data.description ?? "",
-      body: data.body ?? undefined,
-      imageUrl: data.image_url ?? undefined,
-      date: data.published_at ?? "",
-      likes: data.likes ?? 0,
-    };
-  },
-
-  getBanners: async (): Promise<Banner[]> => {
-    const { data, error } = await supabase
-      .from("banners")
-      .select("id, title, subtitle, tag, image_url, link_url, news_id, sort_order, published_at")
-      .eq("is_active", true)
-      .not("published_at", "is", null)
-      .order("sort_order", { ascending: true })
-      .order("created_at", { ascending: false });
-
-    if (error || !data) return [];
-
-    return data.map((row: any) => ({
-      id: String(row.id),
-      title: row.title ?? "",
-      subtitle: row.subtitle ?? undefined,
-      tag: row.tag ?? undefined,
-      imageUrl: row.image_url ?? "",
-      linkUrl: row.link_url ?? undefined,
-      newsId: row.news_id != null ? String(row.news_id) : undefined,
-    }));
-  },
-
   getFiles: async () => {
     await delay(400);
     return mockFiles;
   },
 
-  // RLS-ээр зөвхөн нэвтэрсэн хэрэглэгчийн өөрийн мэдэгдэл буцна.
-  getNotifications: async (): Promise<Notification[]> => {
-    const { data, error } = await supabase
-      .from("notifications")
-      .select("id, title, message, type, is_read, created_at")
-      .order("created_at", { ascending: false })
-      .limit(50);
-
+  // ---- Contact (найз) систем ----
+  getContacts: async (): Promise<Contact[]> => {
+    const { data, error } = await mobileDb().rpc("get_contacts");
     if (error || !data) return [];
-
-    return data.map((row: any) => ({
-      id: String(row.id),
-      title: row.title ?? "",
-      message: row.message ?? "",
-      date: row.created_at ?? "",
-      read: row.is_read ?? false,
-      type: (row.type as Notification["type"]) ?? "info",
+    return (data as any[]).map((r) => ({
+      userId: String(r.user_id),
+      name: r.name ?? "",
+      positionName: r.position_name ?? "",
+      heltesName: r.heltes_name ?? "",
+      phone: r.phone ?? "",
     }));
   },
 
-  markNotificationRead: async (id: string): Promise<void> => {
-    await supabase
-      .from("notifications")
-      .update({ is_read: true })
-      .eq("id", Number(id));
-  },
-
-  markAllNotificationsRead: async (): Promise<void> => {
-    await supabase
-      .from("notifications")
-      .update({ is_read: true })
-      .eq("is_read", false);
-  },
-
-  getEmployeeContacts: async (departmentId: string, heltesId: string): Promise<EmployeeContact[]> => {
-    let query = supabase
-      .from("users_with_stats")
-      .select("first_name, last_name, phone, department_name, heltes_name, position_name")
-      .eq("is_working", true);
-
-    if (departmentId) {
-      query = query.eq("department_id", departmentId);
-    } else if (heltesId) {
-      query = query.eq("heltes_id", heltesId);
-    }
-
-    const { data, error } = await query
-      .order("first_name");
-
+  getContactRequests: async (): Promise<ContactRequest[]> => {
+    const { data, error } = await mobileDb().rpc("get_contact_requests");
     if (error || !data) return [];
-
-    return data.map((row: any) => ({
-      firstName: row.first_name ?? "",
-      lastName: row.last_name ?? "",
-      phone: row.phone ?? "",
-      departmentName: row.department_name ?? "",
-      heltesName: row.heltes_name ?? "",
-      positionName: row.position_name ?? "",
+    return (data as any[]).map((r) => ({
+      requesterId: String(r.requester_id),
+      name: r.name ?? "",
+      positionName: r.position_name ?? "",
+      createdAt: r.created_at ?? "",
     }));
+  },
+
+  searchSystemUsers: async (query: string): Promise<DirectoryUser[]> => {
+    const { data, error } = await mobileDb().rpc("search_system_users", {
+      p_query: query,
+    });
+    if (error || !data) return [];
+    return (data as any[]).map(mapDirectoryUser);
+  },
+
+  getOrgGroups: async (): Promise<OrgGroup[]> => {
+    const { data, error } = await mobileDb().rpc("get_org_groups");
+    if (error || !data) return [];
+    return (data as any[]).map((r) => ({
+      groupId: String(r.group_id),
+      name: r.name ?? "",
+      memberCount: r.member_count ?? 0,
+    }));
+  },
+
+  getOrgGroupMembers: async (groupBtegId: string): Promise<DirectoryUser[]> => {
+    const { data, error } = await mobileDb().rpc("get_org_group_members", {
+      p_group_bteg_id: groupBtegId,
+    });
+    if (error || !data) return [];
+    return (data as any[]).map(mapDirectoryUser);
+  },
+
+  sendContactRequest: async (userId: string): Promise<string | null> => {
+    const { data, error } = await mobileDb().rpc("send_contact_request", {
+      p_addressee_id: userId,
+    });
+    if (error) return null;
+    return data as string;
+  },
+
+  respondContactRequest: async (requesterId: string, accept: boolean): Promise<void> => {
+    await mobileDb().rpc("respond_contact_request", {
+      p_requester_id: requesterId,
+      p_accept: accept,
+    });
+  },
+
+  removeContact: async (userId: string): Promise<void> => {
+    await mobileDb().rpc("remove_contact", { p_user_id: userId });
   },
 
   getLeaveTypes: async (): Promise<LeaveType[]> => {

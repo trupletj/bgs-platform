@@ -1,87 +1,82 @@
-import { ScrollView, View } from "react-native";
+import { useCallback, useState } from "react";
+import { ScrollView, View, Text, RefreshControl, ActivityIndicator } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useQuery } from "@tanstack/react-query";
-import { useRouter } from "expo-router";
-import { HeaderBar } from "@/components/bgs/header-bar";
-import { ShiftCard } from "@/components/bgs/shift-card";
-import { BgsServiceGrid } from "@/components/bgs/service-grid";
-import { BannerCarousel } from "@/components/bgs/banner-carousel";
-import { BgsNewsList } from "@/components/bgs/news-list";
+import { useRouter, useFocusEffect } from "expo-router";
+import { ChatHeader } from "@/components/chat/chat-header";
+import { ChatList } from "@/components/chat/chat-list";
 import { api } from "@/lib/api";
 import { queryKeys } from "@/lib/query-keys";
-import { useAuthStore } from "@/stores/auth-store";
-import { getTheme } from "@/lib/theme";
+import { useTheme } from "@/hooks/use-theme";
+import { S } from "@/constants/strings";
 
-export default function HomeScreen() {
+export default function ChatScreen() {
   const router = useRouter();
-  const t = getTheme(false);
-  const user = useAuthStore((s) => s.user);
+  const t = useTheme();
+  const [search, setSearch] = useState("");
+  const [refreshing, setRefreshing] = useState(false);
 
-  const workerId = user?.employeeId;
-
-  const { data: attendance } = useQuery({
-    queryKey: queryKeys.attendance.week(workerId ?? ""),
-    queryFn: () => api.getAttendance(workerId!),
-    enabled: !!workerId,
+  const { data: threads, refetch } = useQuery({
+    queryKey: queryKeys.chat.threads,
+    queryFn: api.getChatThreads,
   });
 
-  const { data: services } = useQuery({
-    queryKey: queryKeys.services.all,
-    queryFn: api.getServices,
-  });
+  const onRefresh = useCallback(async () => {
+    setRefreshing(true);
+    await refetch();
+    setRefreshing(false);
+  }, [refetch]);
 
-  const { data: notifications } = useQuery({
-    queryKey: queryKeys.notifications.all,
-    queryFn: api.getNotifications,
-  });
+  // Чат руу буцаж ороход жагсаалтыг сэргээнэ (шинэ мессеж/чат)
+  useFocusEffect(
+    useCallback(() => {
+      refetch();
+    }, [refetch])
+  );
 
-  const { data: news } = useQuery({
-    queryKey: queryKeys.news.all,
-    queryFn: () => api.getNews(),
-  });
-
-  const { data: banners } = useQuery({
-    queryKey: queryKeys.banners.all,
-    queryFn: api.getBanners,
-  });
-
-  const todayAttendance = attendance?.days.find((d) => d.status === "current");
-  const firstName = user?.name?.split(" ").slice(-1)[0] ?? "Ажилтан";
+  const filtered = (threads ?? [])
+    // Official (системийн) сувгийг одоогоор нуунa — дараа дахин нээнэ
+    .filter((th) => !th.isOfficial)
+    .filter(
+      (th) =>
+        th.name.toLowerCase().includes(search.toLowerCase()) ||
+        th.lastMessage.toLowerCase().includes(search.toLowerCase())
+    );
 
   return (
     <SafeAreaView edges={["top"]} style={{ flex: 1, backgroundColor: t.bg }}>
+      <ChatHeader
+        t={t}
+        search={search}
+        onSearch={setSearch}
+        onNewChat={() => router.push("/chat/new" as never)}
+        onNewGroup={() => router.push("/chat/new-group" as never)}
+        onDiscover={() => router.push("/chat/discover" as never)}
+        onScan={() => router.push("/profile/qr" as never)}
+      />
       <ScrollView
         style={{ flex: 1 }}
-        contentContainerStyle={{ paddingBottom: 24 }}
+        contentContainerStyle={{ paddingHorizontal: 20, paddingBottom: 24, paddingTop: 4 }}
         showsVerticalScrollIndicator={false}
+        refreshControl={
+          <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={t.accent} />
+        }
       >
-        <HeaderBar
-          t={t}
-          greeting="Өглөөний мэнд,"
-          name={firstName}
-          hasUnread={notifications?.some((n) => !n.read) ?? false}
-          onBell={() => router.push("/notifications")}
-        />
-        <View style={{ paddingHorizontal: 20 }}>
-          <ShiftCard
+        {threads === undefined ? (
+          <View style={{ alignItems: "center", paddingVertical: 60 }}>
+            <ActivityIndicator color={t.accent} />
+          </View>
+        ) : filtered.length > 0 ? (
+          <ChatList
             t={t}
-            isWorking={user?.isWorking ?? false}
-            checkInTime={todayAttendance?.checkIn}
-            shiftLabel={user?.role || "Өнөөдрийн ээлж"}
-            department={user?.department}
-            onQR={() => router.push("/(tabs)/scan")}
+            threads={filtered}
+            onPressThread={(th) => router.push(`/chat/${th.id}` as never)}
           />
-          {services && <BgsServiceGrid t={t} services={services} />}
-          <BannerCarousel t={t} banners={banners} />
-          {news && (
-            <BgsNewsList
-              t={t}
-              items={news}
-              onSeeAll={() => router.push("/news")}
-              onItemPress={(id) => router.push(`/news/${id}` as never)}
-            />
-          )}
-        </View>
+        ) : (
+          <View style={{ alignItems: "center", paddingVertical: 60 }}>
+            <Text style={{ fontSize: 14, color: t.faint }}>{S.chat.empty}</Text>
+          </View>
+        )}
       </ScrollView>
     </SafeAreaView>
   );

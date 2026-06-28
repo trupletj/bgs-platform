@@ -1,6 +1,6 @@
 import { View, Text, ActivityIndicator, Pressable } from "react-native";
 import { BrandMark } from "@/components/brand/brand-mark";
-import { getTheme } from "@/lib/theme";
+import { useTheme } from "@/hooks/use-theme";
 import { useAuthStore } from "@/stores/auth-store";
 
 interface LoadingScreenProps {
@@ -9,7 +9,7 @@ interface LoadingScreenProps {
 }
 
 export function LoadingScreen({ error }: LoadingScreenProps) {
-  const t = getTheme(false);
+  const t = useTheme();
   const logout = useAuthStore((s) => s.logout);
 
   return (

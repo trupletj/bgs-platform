@@ -1,13 +1,13 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { View, Text, Pressable, ScrollView } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
-import { useFocusEffect } from "expo-router";
+import { useFocusEffect, useRouter } from "expo-router";
 import * as Brightness from "expo-brightness";
-import { RefreshCw, Sun } from "lucide-react-native";
+import { RefreshCw, Sun, ChevronLeft } from "lucide-react-native";
 import QRCode from "react-native-qrcode-svg";
 import { BgsCard } from "@/components/bgs/card";
 import { BrandMark } from "@/components/brand/brand-mark";
-import { getTheme } from "@/lib/theme";
+import { useTheme } from "@/hooks/use-theme";
 import { useAuthStore } from "@/stores/auth-store";
 import { buildIdCardPayload, localDateString } from "@/lib/id-card-qr";
 
@@ -20,7 +20,8 @@ const MODES: { id: Mode; label: string; hint: string }[] = [
 ];
 
 export default function QrScreen() {
-  const t = getTheme(false);
+  const t = useTheme();
+  const router = useRouter();
   const user = useAuthStore((s) => s.user);
   const [mode, setMode] = useState<Mode>("access");
   const [now, setNow] = useState(() => new Date());
@@ -40,7 +41,7 @@ export default function QrScreen() {
     [user?.idCardNumber, user?.employeeId, dateStr]
   );
 
-  // Дэлгэцийг гэрэлтүүлэх — QR таб идэвхтэй үед хамгийн их гэрэл, гарахад сэргээнэ.
+  // Дэлгэцийг гэрэлтүүлэх — QR харагдаж байх үед хамгийн их гэрэл, гарахад сэргээнэ.
   const applyBrightness = useCallback(async () => {
     try {
       const { status } = await Brightness.requestPermissionsAsync();
@@ -55,7 +56,7 @@ export default function QrScreen() {
   useFocusEffect(
     useCallback(() => {
       return () => {
-        // Табаас гарахад дэлгэцийн гэрлийг системд буцаана.
+        // Дэлгэцээс гарахад гэрлийг системд буцаана.
         Brightness.restoreSystemBrightnessAsync().catch(() => {});
         setBoosted(false);
       };
@@ -72,8 +73,23 @@ export default function QrScreen() {
         contentContainerStyle={{ paddingHorizontal: 20, paddingBottom: 24, paddingTop: 4 }}
         showsVerticalScrollIndicator={false}
       >
+        {/* Back */}
+        <Pressable
+          onPress={() => router.back()}
+          style={{
+            width: 40,
+            height: 40,
+            alignItems: "center",
+            justifyContent: "center",
+            marginLeft: -8,
+            marginTop: 4,
+          }}
+        >
+          <ChevronLeft size={26} color={t.text} strokeWidth={2} />
+        </Pressable>
+
         {/* Title */}
-        <View style={{ alignItems: "center", paddingVertical: 14 }}>
+        <View style={{ alignItems: "center", paddingVertical: 10 }}>
           <Text
             style={{ fontSize: 22, fontWeight: "800", color: t.text, letterSpacing: -0.4 }}
           >

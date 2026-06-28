@@ -6,16 +6,16 @@ import {
   Building2,
   User as UserIcon,
   CreditCard,
-  Bell,
   Globe,
   Fingerprint,
   Moon,
   Sun,
   LogOut,
   ChevronRight,
+  QrCode,
 } from "lucide-react-native";
 import { BgsCard } from "@/components/bgs/card";
-import { getTheme } from "@/lib/theme";
+import { useTheme } from "@/hooks/use-theme";
 import { useAuthStore } from "@/stores/auth-store";
 
 interface StatPillProps {
@@ -92,7 +92,7 @@ function SettingRow({
 }
 
 export default function ProfileScreen() {
-  const t = getTheme(false);
+  const t = useTheme();
   const router = useRouter();
   const user = useAuthStore((s) => s.user);
   const logout = useAuthStore((s) => s.logout);
@@ -205,10 +205,20 @@ export default function ProfileScreen() {
         {/* Settings list */}
         <BgsCard t={t} style={{ overflow: "hidden", marginBottom: 18 }}>
           <SettingRow
+            icon={QrCode}
+            label="Дижитал үнэмлэх / QR"
+            onPress={() => router.push("/profile/qr" as never)}
+            hasBorder={false}
+            textColor={t.text}
+            subColor={t.sub}
+            faintColor={t.faint}
+            borderColor={t.border}
+          />
+          <SettingRow
             icon={UserIcon}
             label="Хувийн мэдээлэл"
             onPress={() => router.push("/profile/personal-info")}
-            hasBorder={false}
+            hasBorder
             textColor={t.text}
             subColor={t.sub}
             faintColor={t.faint}
@@ -218,17 +228,6 @@ export default function ProfileScreen() {
             icon={CreditCard}
             label="Гэрчилгээ ба баримт"
             onPress={() => router.push("/profile/documents")}
-            hasBorder
-            textColor={t.text}
-            subColor={t.sub}
-            faintColor={t.faint}
-            borderColor={t.border}
-          />
-          <SettingRow
-            icon={Bell}
-            label="Мэдэгдэл"
-            detail="Идэвхтэй"
-            onPress={() => router.push("/notifications")}
             hasBorder
             textColor={t.text}
             subColor={t.sub}

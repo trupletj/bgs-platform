@@ -1,5 +1,5 @@
 import { Stack } from "expo-router";
 
-export default function NewsLayout() {
+export default function ContactsStackLayout() {
   return <Stack screenOptions={{ headerShown: false }} />;
 }

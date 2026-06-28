@@ -1,5 +1,6 @@
 import { create } from "zustand";
 import { supabase } from "@/lib/supabase";
+import { normalizePhone } from "@/lib/phone";
 import {
   checkBiometricSupport,
   getBiometricEnabled,
@@ -20,6 +21,8 @@ interface AuthState {
   isUnlocked: boolean;
 
   initialize: () => Promise<void>;
+  requestOtp: (phone: string, register: string) => Promise<void>;
+  verifyOtp: (phone: string, token: string) => Promise<void>;
   applyTokens: (tokens: {
     access_token: string;
     refresh_token: string;
@@ -86,6 +89,45 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     }
   },
 
+  // Алхам 1: HR баталгаажуулалт (verify-user) → SMS OTP илгээх
+  requestOtp: async (phone, register) => {
+    set({ error: null });
+    const normPhone = normalizePhone(phone);
+    const reg = register.trim().toUpperCase();
+
+    const { data: vData, error: vErr } = await supabase.functions.invoke("verify-user", {
+      body: { phone: normPhone, register: reg },
+    });
+    if (vErr || (vData as any)?.error) {
+      throw new Error(
+        (vData as any)?.error ||
+          "Бүртгэлтэй хэрэглэгч олдсонгүй эсвэл регистр буруу байна."
+      );
+    }
+
+    const { error: otpErr } = await supabase.auth.signInWithOtp({
+      phone: normPhone,
+      options: { shouldCreateUser: true, data: { register_number: reg } },
+    });
+    if (otpErr) throw new Error(otpErr.message);
+  },
+
+  // Алхам 2: OTP баталгаажуулах → session
+  verifyOtp: async (phone, token) => {
+    set({ error: null });
+    const normPhone = normalizePhone(phone);
+    const { data, error } = await supabase.auth.verifyOtp({
+      phone: normPhone,
+      token,
+      type: "sms",
+    });
+    if (error) throw new Error(error.message);
+    if (!data.session) throw new Error("Session not returned");
+
+    set({ session: data.session, isAuthenticated: true, isUnlocked: true });
+    await get().fetchDbUser(data.session.user.phone ?? normPhone, data.session.user.id);
+  },
+
   applyTokens: async (tokens) => {
     set({ error: null });
     try {
@@ -110,12 +152,9 @@ export const useAuthStore = create<AuthState>((set, get) => ({
 
   fetchDbUser: async (phone: string, userId?: string) => {
     const COLS =
-      "id, bteg_id, idcard_number, first_name, last_name, email, phone, position_name, department_name, department_id, heltes_id, heltes_name";
+      "id, bteg_id, idcard_number, register_number, sf_guard_group_id, avatar_url, first_name, last_name, email, phone, position_name, department_name, department_id, heltes_id, heltes_name";
 
-    // Утсыг нормчилох: цифрээс бусдыг хасаад, +976 кодыг (11 оронтой бол) салгана.
-    const digits = (phone ?? "").replace(/\D/g, "");
-    const normPhone =
-      digits.length === 11 && digits.startsWith("976") ? digits.slice(3) : digits;
+    const normPhone = normalizePhone(phone);
 
     // 1) auth_user_id-аар хайх — хамгийн найдвартай (формат/утаснаас хамаарахгүй).
     let data: Record<string, any> | null = null;
@@ -174,6 +213,17 @@ export const useAuthStore = create<AuthState>((set, get) => ({
       .eq("bteg_id", data.bteg_id)
       .maybeSingle();
 
+    // Ээлжийн (eelj) группын нэр — sf_guard_group_id-аар
+    let shiftName = "";
+    if (data.sf_guard_group_id) {
+      const { data: grp } = await supabase
+        .from("eelj_groups")
+        .select("name")
+        .eq("bteg_id", data.sf_guard_group_id)
+        .maybeSingle();
+      shiftName = grp?.name ?? "";
+    }
+
     const user: User = {
       id: data.id,
       name: `${data.last_name ?? ""} ${(data.first_name ?? "").toUpperCase()}`.trim(),
@@ -184,6 +234,9 @@ export const useAuthStore = create<AuthState>((set, get) => ({
       heltesName: data.heltes_name ?? "",
       employeeId: data.bteg_id,
       idCardNumber: data.idcard_number ?? "",
+      attendanceNumber: (data.register_number ?? "").replace(/\D/g, ""),
+      shiftName,
+      avatarUrl: data.avatar_url ?? undefined,
       email: data.email ?? "",
       phone: data.phone ?? "",
       isWorking: statsData?.is_working ?? false,

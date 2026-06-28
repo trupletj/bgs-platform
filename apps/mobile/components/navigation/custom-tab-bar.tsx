@@ -1,15 +1,30 @@
 import { View, Pressable, Text } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import type { BottomTabBarProps } from "@react-navigation/bottom-tabs";
-import { Home, QrCode, User } from "lucide-react-native";
-import { getTheme } from "@/lib/theme";
+import { useQuery } from "@tanstack/react-query";
+import { MessageCircle, LayoutGrid, Users, User } from "lucide-react-native";
+import { useTheme } from "@/hooks/use-theme";
+import { S } from "@/constants/strings";
+import { api } from "@/lib/api";
+import { queryKeys } from "@/lib/query-keys";
 
-const TAB_ICONS = [Home, QrCode, User] as const;
-const TAB_LABELS = ["Нүүр", "QR код", "Профайл"];
+const TAB_ICONS = [MessageCircle, Users, LayoutGrid, User] as const;
+const TAB_LABELS = [S.tabs.chat, S.tabs.contacts, S.tabs.miniApps, S.tabs.profile];
+// Чат таб (index 0) дээр нийт unread badge харуулна
+const CHAT_TAB_INDEX = 0;
 
 export function CustomTabBar({ state, navigation }: BottomTabBarProps) {
   const insets = useSafeAreaInsets();
-  const t = getTheme(false);
+  const t = useTheme();
+
+  const { data: threads } = useQuery({
+    queryKey: queryKeys.chat.threads,
+    queryFn: api.getChatThreads,
+  });
+  // Official нуугдсан + чимээгүй чатыг нийт unread-д тооцохгүй
+  const totalUnread = (threads ?? [])
+    .filter((th) => !th.isOfficial && !th.muted)
+    .reduce((sum, th) => sum + (th.unread ?? 0), 0);
 
   return (
     <View
@@ -40,7 +55,6 @@ export function CustomTabBar({ state, navigation }: BottomTabBarProps) {
       >
         {state.routes.map((route, index) => {
           const isFocused = state.index === index;
-          const isCenter = index === 1;
           const Icon = TAB_ICONS[index];
           const label = TAB_LABELS[index];
 
@@ -55,46 +69,7 @@ export function CustomTabBar({ state, navigation }: BottomTabBarProps) {
             }
           };
 
-          if (isCenter) {
-            return (
-              <Pressable
-                key={route.key}
-                onPress={onPress}
-                style={{
-                  alignItems: "center",
-                  gap: 3,
-                  transform: [{ translateY: -1 }],
-                }}
-              >
-                <View
-                  style={{
-                    width: 50,
-                    height: 38,
-                    borderRadius: 14,
-                    backgroundColor: isFocused ? t.accent : t.accentSoft,
-                    alignItems: "center",
-                    justifyContent: "center",
-                    shadowColor: t.accent,
-                    shadowOffset: { width: 0, height: 6 },
-                    shadowOpacity: isFocused ? 0.4 : 0,
-                    shadowRadius: 16,
-                    elevation: isFocused ? 6 : 0,
-                  }}
-                >
-                  <Icon size={23} color={isFocused ? "#fff" : t.accent} strokeWidth={2} />
-                </View>
-                <Text
-                  style={{
-                    fontSize: 10,
-                    fontWeight: "700",
-                    color: isFocused ? t.accent : t.sub,
-                  }}
-                >
-                  {label}
-                </Text>
-              </Pressable>
-            );
-          }
+          const badge = index === CHAT_TAB_INDEX ? totalUnread : 0;
 
           return (
             <Pressable
@@ -102,11 +77,35 @@ export function CustomTabBar({ state, navigation }: BottomTabBarProps) {
               onPress={onPress}
               style={{ flex: 1, alignItems: "center", gap: 4, paddingVertical: 6 }}
             >
-              <Icon
-                size={22}
-                color={isFocused ? t.accent : t.sub}
-                strokeWidth={isFocused ? 2.2 : 1.9}
-              />
+              <View>
+                <Icon
+                  size={22}
+                  color={isFocused ? t.accent : t.sub}
+                  strokeWidth={isFocused ? 2.2 : 1.9}
+                />
+                {badge > 0 && (
+                  <View
+                    style={{
+                      position: "absolute",
+                      top: -5,
+                      right: -10,
+                      minWidth: 17,
+                      height: 17,
+                      borderRadius: 9,
+                      backgroundColor: "#E5484D",
+                      borderWidth: 1.5,
+                      borderColor: t.card,
+                      alignItems: "center",
+                      justifyContent: "center",
+                      paddingHorizontal: 4,
+                    }}
+                  >
+                    <Text style={{ fontSize: 9.5, fontWeight: "800", color: "#fff" }}>
+                      {badge > 99 ? "99+" : badge}
+                    </Text>
+                  </View>
+                )}
+              </View>
               <Text
                 style={{
                   fontSize: 10,

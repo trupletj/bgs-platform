@@ -1,5 +1,4 @@
-import { View, Text, Pressable } from "react-native";
-import { Bell } from "lucide-react-native";
+import { View, Text } from "react-native";
 import { BrandMark } from "@/components/brand/brand-mark";
 import type { BgsTheme } from "@/lib/theme";
 
@@ -7,23 +6,14 @@ interface HeaderBarProps {
   t: BgsTheme;
   greeting?: string;
   name: string;
-  onBell?: () => void;
-  hasUnread?: boolean;
 }
 
-export function HeaderBar({
-  t,
-  greeting = "Өглөөний мэнд,",
-  name,
-  onBell,
-  hasUnread = true,
-}: HeaderBarProps) {
+export function HeaderBar({ t, greeting = "Өглөөний мэнд,", name }: HeaderBarProps) {
   return (
     <View
       style={{
         flexDirection: "row",
         alignItems: "center",
-        justifyContent: "space-between",
         paddingHorizontal: 20,
         paddingTop: 6,
         paddingBottom: 14,
@@ -58,36 +48,6 @@ export function HeaderBar({
           </Text>
         </View>
       </View>
-      <Pressable
-        onPress={onBell}
-        style={{
-          width: 42,
-          height: 42,
-          borderRadius: 13,
-          borderWidth: 1,
-          borderColor: t.border,
-          backgroundColor: t.card,
-          alignItems: "center",
-          justifyContent: "center",
-        }}
-      >
-        <Bell size={21} color={t.text} strokeWidth={1.9} />
-        {hasUnread && (
-          <View
-            style={{
-              position: "absolute",
-              top: 9,
-              right: 10,
-              width: 8,
-              height: 8,
-              borderRadius: 4,
-              backgroundColor: t.accent,
-              borderWidth: 2,
-              borderColor: t.card,
-            }}
-          />
-        )}
-      </Pressable>
     </View>
   );
 }

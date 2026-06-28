@@ -8,6 +8,10 @@ export interface User {
   heltesName: string;
   employeeId: string;
   idCardNumber: string;
+  /** Цаг бүртгэлийн дугаар (регистрийн цифр хэсэг) */
+  attendanceNumber: string;
+  /** Ээлжийн (eelj) группын нэр, жишээ "BTEG B-2" */
+  shiftName: string;
   avatarUrl?: string;
   email: string;
   phone: string;
@@ -58,26 +62,6 @@ export interface ServiceItem {
   badgeVariant?: "default" | "success" | "danger" | "warning" | "info";
 }
 
-export interface NewsItem {
-  id: string;
-  title: string;
-  description: string;
-  body?: string;
-  imageUrl?: string;
-  date: string;
-  likes: number;
-}
-
-export interface Banner {
-  id: string;
-  title: string;
-  subtitle?: string;
-  tag?: string;
-  imageUrl: string;
-  linkUrl?: string;
-  newsId?: string;
-}
-
 export interface FileItem {
   id: string;
   name: string;
@@ -114,20 +98,122 @@ export interface LeaveRequestRow {
   createdAt: string;
 }
 
-export interface EmployeeContact {
-  firstName: string;
-  lastName: string;
-  phone: string;
-  departmentName: string;
-  heltesName: string;
+export type ContactStatus =
+  | "none"
+  | "pending_out"
+  | "pending_in"
+  | "accepted"
+  | "self";
+
+/** Системийн хэрэглэгч (хайлт / группийн гишүүн) */
+export interface DirectoryUser {
+  id: string;
+  name: string;
   positionName: string;
+  heltesName: string;
+  phone: string;
+  contactStatus: ContactStatus;
 }
 
-export interface Notification {
+/** Баталгаажсан contact */
+export interface Contact {
+  userId: string;
+  name: string;
+  positionName: string;
+  heltesName: string;
+  phone: string;
+}
+
+/** Надад ирсэн найзын хүсэлт */
+export interface ContactRequest {
+  requesterId: string;
+  name: string;
+  positionName: string;
+  createdAt: string;
+}
+
+/** Байгууллагын групп (миний харьяалагдах) */
+export interface OrgGroup {
+  groupId: string;
+  name: string;
+  memberCount: number;
+}
+
+export interface ChatThread {
+  id: string;
+  name: string;
+  lastMessage: string;
+  time: string;
+  unread: number;
+  isGroup: boolean;
+  /** Системийн/албан ёсны суваг (жишээ: Цаг бүртгэл, HR мэдэгдэл) */
+  isOfficial?: boolean;
+  /** Чимээгүй болгосон эсэх */
+  muted?: boolean;
+}
+
+/** Системийн мессеж дээрх үйлдлийн товч / бэлэн хариулт */
+export interface MessageAction {
+  label: string;
+  kind: "route" | "flow" | "reply";
+  value?: string;
+}
+
+export interface ChatMessage {
+  id: string;
+  threadId: string;
+  text: string;
+  fromMe: boolean;
+  time: string;
+  /** Raw ISO timestamp — pagination/огноо тооцоход */
+  createdAt?: string;
+  /** Optimistic илгээлтийн төлөв */
+  pending?: boolean;
+  failed?: boolean;
+  /** Мессежийн төрөл: text | image | file | system */
+  kind?: string;
+  attachmentUrl?: string;
+  attachmentName?: string;
+  attachmentMime?: string;
+  /** Бүлгийн чатад илгээгчийн нэр; official сувагт сувгийн нэр (badge) */
+  senderName?: string;
+  /** Official сувагт бичсэн ажилтны нэр (автомат бол хоосон) */
+  senderStaff?: string;
+  /** Системийн мессеж дээрх үйлдлийн товчнууд */
+  actions?: MessageAction[];
+}
+
+export type GroupVisibility = "private" | "public";
+export type GroupJoinStatus = "member" | "pending" | "none";
+
+/** Хайлтаар олдсон нийтийн групп */
+export interface PublicGroup {
+  id: string;
+  name: string;
+  memberCount: number;
+  joinStatus: GroupJoinStatus;
+}
+
+/** Группын дэлгэрэнгүй (мэдээллийн дэлгэц) */
+export interface GroupDetail {
   id: string;
   title: string;
-  message: string;
-  date: string;
-  read: boolean;
-  type: "info" | "warning" | "success";
+  visibility: GroupVisibility;
+  isAdmin: boolean;
+  memberCount: number;
+}
+
+export interface GroupMember {
+  userId: string;
+  name: string;
+  positionName: string;
+  role: string;
+}
+
+/** Группэд нэгдэх хүсэлт (админд харагдана) */
+export interface GroupJoinRequest {
+  userId: string;
+  name: string;
+  positionName: string;
+  createdAt: string;
 }

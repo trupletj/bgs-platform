@@ -8,7 +8,8 @@ export default function TabLayout() {
       screenOptions={{ headerShown: false }}
     >
       <Tabs.Screen name="index" />
-      <Tabs.Screen name="scan" />
+      <Tabs.Screen name="contacts" />
+      <Tabs.Screen name="mini-apps" />
       <Tabs.Screen name="profile" />
     </Tabs>
   );

@@ -67,27 +67,21 @@ function BootGate({ children }: { children: React.ReactNode }) {
   // Auth + biometric давсан, үндсэн апп руу орох гэж буй төлөв.
   const passedAuth = isAuthenticated && (!biometricEnabled || isUnlocked);
 
+  const userId = user?.id;
+  const employeeId = user?.employeeId;
+
   useEffect(() => {
-    if (!passedAuth || !user) return;
+    if (!passedAuth || !userId || !employeeId) return;
     let cancelled = false;
-    const userId = user.id;
     void (async () => {
       await Promise.allSettled([
         queryClient.prefetchQuery({
-          queryKey: queryKeys.attendance.week(user.employeeId),
-          queryFn: () => api.getAttendance(user.employeeId),
+          queryKey: queryKeys.attendance.week(employeeId),
+          queryFn: () => api.getAttendance(employeeId),
         }),
         queryClient.prefetchQuery({
-          queryKey: queryKeys.notifications.all,
-          queryFn: api.getNotifications,
-        }),
-        queryClient.prefetchQuery({
-          queryKey: queryKeys.news.all,
-          queryFn: () => api.getNews(),
-        }),
-        queryClient.prefetchQuery({
-          queryKey: queryKeys.banners.all,
-          queryFn: api.getBanners,
+          queryKey: queryKeys.services.all,
+          queryFn: api.getServices,
         }),
       ]);
       if (!cancelled) setReadyForUser(userId);
@@ -95,7 +89,7 @@ function BootGate({ children }: { children: React.ReactNode }) {
     return () => {
       cancelled = true;
     };
-  }, [passedAuth, user?.id, user?.employeeId, queryClient]);
+  }, [passedAuth, userId, employeeId, queryClient]);
 
   const ready = user != null && readyForUser === user.id;
   const showLoading = !isLoading && passedAuth && !ready;
@@ -154,8 +148,6 @@ export default function RootLayout() {
                 />
                 <Stack.Screen name="services" options={{ headerShown: false }} />
                 <Stack.Screen name="profile" options={{ headerShown: false }} />
-                <Stack.Screen name="news" options={{ headerShown: false }} />
-                <Stack.Screen name="notifications" options={{ headerShown: false }} />
                 <Stack.Screen
                   name="modal"
                   options={{ presentation: "modal", title: "Modal" }}
