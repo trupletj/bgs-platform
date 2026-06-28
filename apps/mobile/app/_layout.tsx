@@ -15,6 +15,7 @@ import { useFonts, SpaceGrotesk_700Bold } from "@expo-google-fonts/space-grotesk
 import "react-native-reanimated";
 
 import { useAuthStore } from "@/stores/auth-store";
+import { useThemeStore } from "@/stores/theme-store";
 import { LoadingScreen } from "@/components/bgs/loading-screen";
 import { api } from "@/lib/api";
 import { queryKeys } from "@/lib/query-keys";
@@ -105,11 +106,13 @@ function BootGate({ children }: { children: React.ReactNode }) {
 export default function RootLayout() {
   const initialize = useAuthStore((s) => s.initialize);
   const isLoading = useAuthStore((s) => s.isLoading);
+  const loadThemeMode = useThemeStore((s) => s.loadMode);
   const [fontsLoaded] = useFonts({ SpaceGrotesk_700Bold });
 
   useEffect(() => {
     initialize();
-  }, [initialize]);
+    loadThemeMode();
+  }, [initialize, loadThemeMode]);
 
   useEffect(() => {
     if (!isLoading && fontsLoaded) {

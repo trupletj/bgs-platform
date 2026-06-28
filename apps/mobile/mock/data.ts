@@ -10,6 +10,8 @@ export const mockUser: User = {
   heltesName: "",
   employeeId: "BGS-2024-0042",
   idCardNumber: "430180652506",
+  attendanceNumber: "90012131",
+  shiftName: "BTEG B-2",
   email: "batbold@bgs.mn",
   phone: "+976 9911 2233",
   isWorking: true,

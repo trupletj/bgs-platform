@@ -171,7 +171,7 @@ export const S = {
     department: "Алба",
     heltes: "Хэлтэс",
     employeeCode: "Ажилтны код",
-    idCardNumber: "Үнэмлэхийн дугаар",
+    attendanceNumber: "Цаг бүртгэлийн дугаар",
     email: "И-мэйл",
     phone: "Утас",
     empty: "—",

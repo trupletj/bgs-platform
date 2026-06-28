@@ -26,7 +26,7 @@ File-based routing via **expo-router** with typed routes enabled. The `app/` dir
   - `index.tsx` — Chat list (WeChat-style), backed by the `mobile` schema (`api.getChatThreads` → `mobile.get_conversations`). `+` menu → new direct chat / new group / discover / scan. Default landing screen.
   - `mini-apps.tsx` — Services ("Үйлчилгээ"): a vertical list of services (`components/bgs/service-list.tsx`) from `constants/services.ts`, tap → `item.route`. (News, banners, notifications, the shift/QR card, and the notification bell were removed.)
   - `contacts.tsx` — Friend-model contacts: incoming requests, accepted contacts (tap-to-chat), my chat groups, my org groups. `+` → `/contacts/add`.
-  - `profile.tsx` — User profile + settings; first row opens the digital ID / QR (`/profile/qr`).
+  - `profile.tsx` — User profile + settings. Avatar is changeable (`expo-image-picker` → `avatars` Storage bucket → `mobile.set_avatar` RPC → `users.avatar_url`). Stats show **Цаг бүртгэл** (`user.attendanceNumber` = digits of `register_number`) and **Ээлж** (`user.shiftName` = `eelj_groups.name` via `sf_guard_group_id`). Theme selector (Цайвар/Гүн/Систем) via `useThemeStore`. Rows: QR, Хувийн мэдээлэл, Хэл. (Documents row + biometric toggle removed.)
 - `app/chat/` — Chat conversation stack
   - `[id].tsx` — Conversation view: message bubbles + input bar. Real send via `api.sendChatMessage`; live updates via Supabase Realtime (`postgres_changes` on `mobile.messages`); marks read on open.
   - `new.tsx` — Pick from **accepted contacts** → `api.createDirectConversation` → open thread.
@@ -38,13 +38,15 @@ File-based routing via **expo-router** with typed routes enabled. The `app/` dir
   - `group/[id].tsx` — Org group members (`api.getOrgGroupMembers`) with add/accept actions.
 - `app/profile/` — Profile detail stack
   - `qr.tsx` — Digital ID card QR (formerly `(tabs)/scan.tsx`); brightness boost, mode segments.
-  - `personal-info.tsx`, `documents.tsx`
+  - `personal-info.tsx` (shows attendance number instead of ID-card number)
 - `app/services/` — Service detail screens (pushed from the mini-apps service grid)
   - `attendance.tsx` — Detailed attendance (Ирц): 14-day view with scheduled/punch times, late/early flags
   - `index.tsx` — Service grid by category + company files (segmented tabs)
 - `app/modal.tsx` — Modal screen presented over tabs
 
 Chat/contacts data: types `ChatThread`/`ChatMessage`/`EmployeeContact` in `types/index.ts`; query keys under `queryKeys.chat` and `queryKeys.phoneDirectory`. Chat/contacts UI components in `components/chat/` and `components/contacts/`.
+
+Theming / dark mode: screens/components get colors from **`useTheme()`** (`hooks/use-theme.ts`) which returns `getTheme(isDark)` based on NativeWind's resolved `colorScheme`. The chosen mode (light/dark/system) lives in **`stores/theme-store.ts`** (`useThemeStore`, persisted in AsyncStorage; `setMode` also calls nativewind `colorScheme.set`). `RootLayout` calls `loadMode()` on start; the Profile "Харагдац" selector sets it. Do NOT use `getTheme(false)` in screens — use `useTheme()`.
 
 Shared UI helpers: `components/ui/screen-header.tsx` (back + title + right slot — use on pushed screens instead of re-implementing headers); `lib/avatar-color.ts` (`avatarColor`/`avatarSoft` — deterministic per-name avatar colors for list rows); `lib/haptics.ts` (`tapLight`/`tapSuccess`); `hooks/use-debounced-value.ts` (debounce search inputs whose query key includes the term). Chat conversation (`app/chat/[id].tsx`) uses optimistic send (local outbox + realtime dedupe), paginated `get_messages` (limit 30, "load earlier"), and day separators. The Chat tab icon shows total unread (excludes official + muted) via `components/navigation/custom-tab-bar.tsx`.
 

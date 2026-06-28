@@ -1,15 +1,17 @@
-import { ScrollView, View, Text, Pressable, Alert } from "react-native";
+import { useState } from "react";
+import { ScrollView, View, Text, Pressable, ActivityIndicator } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useRouter } from "expo-router";
+import { Image } from "expo-image";
+import * as ImagePicker from "expo-image-picker";
 import {
   Camera,
   Building2,
   User as UserIcon,
-  CreditCard,
   Globe,
-  Fingerprint,
   Moon,
   Sun,
+  Monitor,
   LogOut,
   ChevronRight,
   QrCode,
@@ -17,6 +19,10 @@ import {
 import { BgsCard } from "@/components/bgs/card";
 import { useTheme } from "@/hooks/use-theme";
 import { useAuthStore } from "@/stores/auth-store";
+import { useThemeStore, type ThemeMode } from "@/stores/theme-store";
+import { api } from "@/lib/api";
+import { alertDialog } from "@/lib/dialog";
+import type { BgsTheme } from "@/lib/theme";
 
 interface StatPillProps {
   value: string;
@@ -28,12 +34,10 @@ interface StatPillProps {
 function StatPill({ value, label, textColor, subColor }: StatPillProps) {
   return (
     <View style={{ flex: 1, alignItems: "center", paddingVertical: 4 }}>
-      <Text style={{ fontSize: 19, fontWeight: "800", color: textColor, letterSpacing: -0.4 }}>
-        {value}
+      <Text style={{ fontSize: 18, fontWeight: "800", color: textColor, letterSpacing: -0.4 }} numberOfLines={1}>
+        {value || "—"}
       </Text>
-      <Text style={{ fontSize: 11, color: subColor, marginTop: 2, fontWeight: "500" }}>
-        {label}
-      </Text>
+      <Text style={{ fontSize: 11, color: subColor, marginTop: 2, fontWeight: "500" }}>{label}</Text>
     </View>
   );
 }
@@ -44,23 +48,10 @@ interface SettingRowProps {
   detail?: string;
   onPress?: () => void;
   hasBorder: boolean;
-  textColor: string;
-  subColor: string;
-  faintColor: string;
-  borderColor: string;
+  t: BgsTheme;
 }
 
-function SettingRow({
-  icon: Icon,
-  label,
-  detail,
-  onPress,
-  hasBorder,
-  textColor,
-  subColor,
-  faintColor,
-  borderColor,
-}: SettingRowProps) {
+function SettingRow({ icon: Icon, label, detail, onPress, hasBorder, t }: SettingRowProps) {
   return (
     <Pressable
       onPress={onPress}
@@ -71,39 +62,65 @@ function SettingRow({
         paddingHorizontal: 16,
         paddingVertical: 14,
         borderTopWidth: hasBorder ? 1 : 0,
-        borderTopColor: borderColor,
+        borderTopColor: t.border,
       }}
     >
-      <Icon size={20} color={subColor} strokeWidth={1.9} />
-      <Text
-        style={{
-          flex: 1,
-          fontSize: 14.5,
-          fontWeight: "600",
-          color: textColor,
-        }}
-      >
-        {label}
-      </Text>
-      {detail && <Text style={{ fontSize: 12.5, color: faintColor }}>{detail}</Text>}
-      <ChevronRight size={15} color={faintColor} strokeWidth={2.2} />
+      <Icon size={20} color={t.sub} strokeWidth={1.9} />
+      <Text style={{ flex: 1, fontSize: 14.5, fontWeight: "600", color: t.text }}>{label}</Text>
+      {detail && <Text style={{ fontSize: 12.5, color: t.faint }}>{detail}</Text>}
+      <ChevronRight size={15} color={t.faint} strokeWidth={2.2} />
     </Pressable>
   );
 }
+
+const THEME_OPTIONS: { key: ThemeMode; label: string; Icon: typeof Sun }[] = [
+  { key: "light", label: "Цайвар", Icon: Sun },
+  { key: "dark", label: "Гүн", Icon: Moon },
+  { key: "system", label: "Систем", Icon: Monitor },
+];
 
 export default function ProfileScreen() {
   const t = useTheme();
   const router = useRouter();
   const user = useAuthStore((s) => s.user);
   const logout = useAuthStore((s) => s.logout);
-  const biometricAvailable = useAuthStore((s) => s.biometricAvailable);
-  const biometricEnabled = useAuthStore((s) => s.biometricEnabled);
-  const setBiometricEnabled = useAuthStore((s) => s.setBiometricEnabled);
+  const setUserAvatar = useAuthStore((s) => s.setUserAvatar);
+  const themeMode = useThemeStore((s) => s.mode);
+  const setThemeMode = useThemeStore((s) => s.setMode);
+  const [uploading, setUploading] = useState(false);
 
   if (!user) return null;
 
   const initial = user.name.charAt(0) || "U";
-  const empCode = user.employeeId.replace(/^BGS-?/i, "") || user.employeeId;
+
+  const pickAvatar = async () => {
+    const perm = await ImagePicker.requestMediaLibraryPermissionsAsync();
+    if (!perm.granted) {
+      alertDialog("Зураг солих", "Зураг сонгох зөвшөөрөл хэрэгтэй.");
+      return;
+    }
+    const res = await ImagePicker.launchImageLibraryAsync({
+      mediaTypes: ["images"],
+      quality: 0.6,
+      allowsEditing: true,
+      aspect: [1, 1],
+    });
+    if (res.canceled || !res.assets?.length) return;
+    const a = res.assets[0];
+    setUploading(true);
+    try {
+      const url = await api.setAvatar({
+        uri: a.uri,
+        mime: a.mimeType ?? "image/jpeg",
+        name: a.fileName ?? undefined,
+      });
+      setUserAvatar(url);
+    } catch (e: any) {
+      alertDialog("Алдаа", e?.message ?? "Зураг хадгалж чадсангүй");
+    } finally {
+      setUploading(false);
+    }
+  };
 
   return (
     <SafeAreaView edges={["top"]} style={{ flex: 1, backgroundColor: t.bg }}>
@@ -112,34 +129,38 @@ export default function ProfileScreen() {
         showsVerticalScrollIndicator={false}
       >
         {/* Identity card */}
-        <BgsCard
-          t={t}
-          style={{ padding: 22, marginBottom: 18, alignItems: "center" }}
-        >
+        <BgsCard t={t} style={{ padding: 22, marginBottom: 18, alignItems: "center" }}>
           <View style={{ position: "relative" }}>
-            <View
-              style={{
-                width: 78,
-                height: 78,
-                borderRadius: 26,
-                backgroundColor: t.accent,
-                alignItems: "center",
-                justifyContent: "center",
-              }}
-            >
-              <Text style={{ color: "#fff", fontSize: 30, fontWeight: "800" }}>{initial}</Text>
-            </View>
+            {user.avatarUrl ? (
+              <Image
+                source={{ uri: user.avatarUrl }}
+                style={{ width: 78, height: 78, borderRadius: 26 }}
+                contentFit="cover"
+              />
+            ) : (
+              <View
+                style={{
+                  width: 78,
+                  height: 78,
+                  borderRadius: 26,
+                  backgroundColor: t.accent,
+                  alignItems: "center",
+                  justifyContent: "center",
+                }}
+              >
+                <Text style={{ color: "#fff", fontSize: 30, fontWeight: "800" }}>{initial}</Text>
+              </View>
+            )}
             <Pressable
-              onPress={() =>
-                Alert.alert("Зураг солих", "Энэ боломж удахгүй нэмэгдэнэ.")
-              }
+              onPress={pickAvatar}
+              disabled={uploading}
               style={{
                 position: "absolute",
                 right: -2,
                 bottom: -2,
-                width: 26,
-                height: 26,
-                borderRadius: 9,
+                width: 28,
+                height: 28,
+                borderRadius: 10,
                 backgroundColor: t.card,
                 borderWidth: 1,
                 borderColor: t.border,
@@ -147,23 +168,19 @@ export default function ProfileScreen() {
                 justifyContent: "center",
               }}
             >
-              <Camera size={14} color={t.sub} strokeWidth={1.9} />
+              {uploading ? (
+                <ActivityIndicator size="small" color={t.accent} />
+              ) : (
+                <Camera size={15} color={t.sub} strokeWidth={1.9} />
+              )}
             </Pressable>
           </View>
           <Text
-            style={{
-              fontSize: 19,
-              fontWeight: "800",
-              color: t.text,
-              marginTop: 13,
-              letterSpacing: -0.3,
-            }}
+            style={{ fontSize: 19, fontWeight: "800", color: t.text, marginTop: 13, letterSpacing: -0.3 }}
           >
             {user.name}
           </Text>
-          {user.role && (
-            <Text style={{ fontSize: 13, color: t.sub, marginTop: 3 }}>{user.role}</Text>
-          )}
+          {user.role && <Text style={{ fontSize: 13, color: t.sub, marginTop: 3 }}>{user.role}</Text>}
           {user.department && (
             <View
               style={{
@@ -185,21 +202,14 @@ export default function ProfileScreen() {
           )}
         </BgsCard>
 
-        {/* Stats */}
+        {/* Stats: Цаг бүртгэл + Ээлж */}
         <BgsCard
           t={t}
           style={{ paddingVertical: 14, paddingHorizontal: 8, marginBottom: 18, flexDirection: "row" }}
         >
-          <StatPill value={empCode} label="Ажилтны код" textColor={t.text} subColor={t.sub} />
+          <StatPill value={user.attendanceNumber} label="Цаг бүртгэл" textColor={t.text} subColor={t.sub} />
           <View style={{ width: 1, backgroundColor: t.border }} />
-          <StatPill
-            value={user.isWorking ? "Идэвхтэй" : "—"}
-            label="Төлөв"
-            textColor={t.text}
-            subColor={t.sub}
-          />
-          <View style={{ width: 1, backgroundColor: t.border }} />
-          <StatPill value="A" label="Ээлж" textColor={t.text} subColor={t.sub} />
+          <StatPill value={user.shiftName} label="Ээлж" textColor={t.text} subColor={t.sub} />
         </BgsCard>
 
         {/* Settings list */}
@@ -209,117 +219,56 @@ export default function ProfileScreen() {
             label="Дижитал үнэмлэх / QR"
             onPress={() => router.push("/profile/qr" as never)}
             hasBorder={false}
-            textColor={t.text}
-            subColor={t.sub}
-            faintColor={t.faint}
-            borderColor={t.border}
+            t={t}
           />
           <SettingRow
             icon={UserIcon}
             label="Хувийн мэдээлэл"
             onPress={() => router.push("/profile/personal-info")}
             hasBorder
-            textColor={t.text}
-            subColor={t.sub}
-            faintColor={t.faint}
-            borderColor={t.border}
-          />
-          <SettingRow
-            icon={CreditCard}
-            label="Гэрчилгээ ба баримт"
-            onPress={() => router.push("/profile/documents")}
-            hasBorder
-            textColor={t.text}
-            subColor={t.sub}
-            faintColor={t.faint}
-            borderColor={t.border}
+            t={t}
           />
           <SettingRow
             icon={Globe}
             label="Хэл"
             detail="Монгол"
-            onPress={() =>
-              Alert.alert("Хэл", "Одоогоор зөвхөн монгол хэл дэмжигдэнэ.")
-            }
+            onPress={() => alertDialog("Хэл", "Одоогоор зөвхөн монгол хэл дэмжигдэнэ.")}
             hasBorder
-            textColor={t.text}
-            subColor={t.sub}
-            faintColor={t.faint}
-            borderColor={t.border}
+            t={t}
           />
+        </BgsCard>
 
-          {/* Biometric toggle */}
-          {biometricAvailable && (
-            <View
-              style={{
-                flexDirection: "row",
-                alignItems: "center",
-                gap: 13,
-                paddingHorizontal: 16,
-                paddingVertical: 14,
-                borderTopWidth: 1,
-                borderTopColor: t.border,
-              }}
-            >
-              <Fingerprint size={20} color={t.sub} strokeWidth={1.9} />
-              <Text style={{ flex: 1, fontSize: 14.5, fontWeight: "600", color: t.text }}>
-                Биометрик нэвтрэлт
-              </Text>
+        {/* Харагдац (light/dark/system) */}
+        <Text style={{ fontSize: 13, fontWeight: "700", color: t.sub, marginBottom: 8, marginLeft: 4 }}>
+          Харагдац
+        </Text>
+        <View style={{ flexDirection: "row", gap: 8, marginBottom: 18 }}>
+          {THEME_OPTIONS.map((opt) => {
+            const active = themeMode === opt.key;
+            const Icon = opt.Icon;
+            return (
               <Pressable
-                onPress={() => setBiometricEnabled(!biometricEnabled)}
+                key={opt.key}
+                onPress={() => setThemeMode(opt.key)}
                 style={{
-                  width: 46,
-                  height: 28,
-                  borderRadius: 16,
-                  backgroundColor: biometricEnabled
-                    ? t.accent
-                    : t.dark
-                    ? "rgba(255,255,255,0.18)"
-                    : "#D2D6DD",
-                  justifyContent: "center",
+                  flex: 1,
+                  paddingVertical: 14,
+                  borderRadius: 14,
+                  borderWidth: 1,
+                  borderColor: active ? t.accent : t.border,
+                  backgroundColor: active ? t.accentSoft : t.card,
+                  alignItems: "center",
+                  gap: 6,
                 }}
               >
-                <View
-                  style={{
-                    width: 22,
-                    height: 22,
-                    borderRadius: 11,
-                    backgroundColor: "#fff",
-                    transform: [{ translateX: biometricEnabled ? 21 : 3 }],
-                    shadowColor: "#000",
-                    shadowOffset: { width: 0, height: 1 },
-                    shadowOpacity: 0.25,
-                    shadowRadius: 3,
-                    elevation: 1,
-                  }}
-                />
+                <Icon size={20} color={active ? t.accent : t.sub} strokeWidth={2} />
+                <Text style={{ fontSize: 12.5, fontWeight: "700", color: active ? t.accent : t.text }}>
+                  {opt.label}
+                </Text>
               </Pressable>
-            </View>
-          )}
-
-          {/* Dark mode display (system-driven, info row) */}
-          <View
-            style={{
-              flexDirection: "row",
-              alignItems: "center",
-              gap: 13,
-              paddingHorizontal: 16,
-              paddingVertical: 14,
-              borderTopWidth: 1,
-              borderTopColor: t.border,
-            }}
-          >
-            {t.dark ? (
-              <Moon size={20} color={t.sub} strokeWidth={1.9} />
-            ) : (
-              <Sun size={20} color={t.sub} strokeWidth={1.9} />
-            )}
-            <Text style={{ flex: 1, fontSize: 14.5, fontWeight: "600", color: t.text }}>
-              Харанхуй горим
-            </Text>
-            <Text style={{ fontSize: 12.5, color: t.faint }}>Системээр</Text>
-          </View>
-        </BgsCard>
+            );
+          })}
+        </View>
 
         {/* Logout */}
         <Pressable
@@ -336,19 +285,10 @@ export default function ProfileScreen() {
           }}
         >
           <LogOut size={19} color="#E5484D" strokeWidth={2} />
-          <Text style={{ fontSize: 14.5, fontWeight: "700", color: "#E5484D" }}>
-            Системээс гарах
-          </Text>
+          <Text style={{ fontSize: 14.5, fontWeight: "700", color: "#E5484D" }}>Системээс гарах</Text>
         </Pressable>
 
-        <Text
-          style={{
-            textAlign: "center",
-            marginTop: 16,
-            fontSize: 11,
-            color: t.faint,
-          }}
-        >
+        <Text style={{ textAlign: "center", marginTop: 16, fontSize: 11, color: t.faint }}>
           BGS Ажилтан · хувилбар 1.0.0
         </Text>
       </ScrollView>

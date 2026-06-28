@@ -1,25 +1,31 @@
-import { View, Text, ScrollView, Pressable } from "react-native";
+import { View, Text, ScrollView } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
-import { router } from "expo-router";
-import { ChevronLeft } from "lucide-react-native";
+import { ScreenHeader } from "@/components/ui/screen-header";
+import { BgsCard } from "@/components/bgs/card";
 import { S } from "@/constants/strings";
+import { useTheme } from "@/hooks/use-theme";
 import { useAuthStore } from "@/stores/auth-store";
+import type { BgsTheme } from "@/lib/theme";
 
-interface InfoRowProps {
-  label: string;
-  value: string;
-  last?: boolean;
-}
-
-function InfoRow({ label, value, last }: InfoRowProps) {
+function InfoRow({ t, label, value, last }: { t: BgsTheme; label: string; value: string; last?: boolean }) {
   return (
     <View
-      className={`flex-row items-center justify-between px-4 py-3.5 ${
-        last ? "" : "border-b border-gray-100"
-      }`}
+      style={{
+        flexDirection: "row",
+        alignItems: "center",
+        justifyContent: "space-between",
+        paddingHorizontal: 16,
+        paddingVertical: 14,
+        borderTopWidth: last ? 0 : 0,
+        borderBottomWidth: last ? 0 : 1,
+        borderBottomColor: t.border,
+      }}
     >
-      <Text className="text-sm text-gray-500">{label}</Text>
-      <Text className="text-sm font-medium text-gray-900 flex-1 text-right ml-4" numberOfLines={2}>
+      <Text style={{ fontSize: 13.5, color: t.sub }}>{label}</Text>
+      <Text
+        style={{ fontSize: 13.5, fontWeight: "600", color: t.text, flex: 1, textAlign: "right", marginLeft: 16 }}
+        numberOfLines={2}
+      >
         {value}
       </Text>
     </View>
@@ -27,38 +33,30 @@ function InfoRow({ label, value, last }: InfoRowProps) {
 }
 
 export default function PersonalInfoScreen() {
+  const t = useTheme();
   const user = useAuthStore((s) => s.user);
   const P = S.personalInfo;
 
   if (!user) return null;
-
   const empCode = user.employeeId.replace(/^BGS-?/i, "") || user.employeeId;
 
   return (
-    <SafeAreaView className="flex-1 bg-gray-50">
-      <View className="flex-row items-center px-4 py-3 gap-3">
-        <Pressable
-          onPress={() => router.back()}
-          className="w-10 h-10 rounded-full bg-white items-center justify-center"
-        >
-          <ChevronLeft size={20} color="#6B7280" />
-        </Pressable>
-        <Text className="text-lg font-bold text-gray-900">{P.title}</Text>
-      </View>
-
-      <ScrollView contentContainerClassName="px-4 pb-6 pt-2">
-        <View className="rounded-2xl bg-white border border-gray-100 overflow-hidden">
-          <InfoRow label={P.name} value={user.name || P.empty} />
-          <InfoRow label={P.role} value={user.role || P.empty} />
-          <InfoRow label={P.department} value={user.department || P.empty} />
-          <InfoRow label={P.heltes} value={user.heltesName || P.empty} />
-          <InfoRow label={P.employeeCode} value={empCode || P.empty} />
-          <InfoRow label={P.idCardNumber} value={user.idCardNumber || P.empty} />
-          <InfoRow label={P.email} value={user.email || P.empty} />
-          <InfoRow label={P.phone} value={user.phone || P.empty} last />
-        </View>
-
-        <Text className="text-xs text-gray-400 mt-4 px-1 leading-5">{P.note}</Text>
+    <SafeAreaView edges={["top"]} style={{ flex: 1, backgroundColor: t.bg }}>
+      <ScreenHeader title={P.title} />
+      <ScrollView contentContainerStyle={{ paddingHorizontal: 20, paddingBottom: 24, paddingTop: 4 }}>
+        <BgsCard t={t} style={{ overflow: "hidden" }}>
+          <InfoRow t={t} label={P.name} value={user.name || P.empty} />
+          <InfoRow t={t} label={P.role} value={user.role || P.empty} />
+          <InfoRow t={t} label={P.department} value={user.department || P.empty} />
+          <InfoRow t={t} label={P.heltes} value={user.heltesName || P.empty} />
+          <InfoRow t={t} label={P.employeeCode} value={empCode || P.empty} />
+          <InfoRow t={t} label={P.attendanceNumber} value={user.attendanceNumber || P.empty} />
+          <InfoRow t={t} label={P.email} value={user.email || P.empty} />
+          <InfoRow t={t} label={P.phone} value={user.phone || P.empty} last />
+        </BgsCard>
+        <Text style={{ fontSize: 12, color: t.faint, marginTop: 16, marginHorizontal: 4, lineHeight: 18 }}>
+          {P.note}
+        </Text>
       </ScrollView>
     </SafeAreaView>
   );

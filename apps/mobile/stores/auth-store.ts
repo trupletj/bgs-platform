@@ -30,6 +30,7 @@ interface AuthState {
   fetchDbUser: (phone: string, userId?: string) => Promise<void>;
   logout: () => Promise<void>;
   clearError: () => void;
+  setUserAvatar: (url: string) => void;
   checkBiometricAvailability: () => Promise<void>;
   setBiometricEnabled: (enabled: boolean) => Promise<void>;
   setUnlocked: () => void;
@@ -221,7 +222,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
         .select("name")
         .eq("bteg_id", data.sf_guard_group_id)
         .maybeSingle();
-      shiftName = grp?.name ?? "";
+      shiftName = (grp?.name ?? "").trim();
     }
 
     const user: User = {
@@ -259,6 +260,11 @@ export const useAuthStore = create<AuthState>((set, get) => ({
   },
 
   clearError: () => set({ error: null }),
+
+  setUserAvatar: (url) => {
+    const u = get().user;
+    if (u) set({ user: { ...u, avatarUrl: url } });
+  },
 
   checkBiometricAvailability: async () => {
     const { supported } = await checkBiometricSupport();

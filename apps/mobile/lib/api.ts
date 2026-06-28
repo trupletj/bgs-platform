@@ -70,6 +70,22 @@ export const api = {
     return mockUser;
   },
 
+  // Профайл зураг солих — avatars bucket-д upload хийгээд users.avatar_url шинэчилнэ
+  setAvatar: async (file: { uri: string; mime: string; name?: string }): Promise<string> => {
+    const ext = file.name?.includes(".") ? file.name.split(".").pop() : "jpg";
+    const path = `${Date.now()}-${Math.random().toString(36).slice(2)}.${ext}`;
+    const resp = await fetch(file.uri);
+    const blob = await resp.blob();
+    const { error: upErr } = await supabase.storage
+      .from("avatars")
+      .upload(path, blob, { contentType: file.mime, upsert: false });
+    if (upErr) throw new Error(upErr.message);
+    const { data: pub } = supabase.storage.from("avatars").getPublicUrl(path);
+    const { error } = await mobileDb().rpc("set_avatar", { p_url: pub.publicUrl });
+    if (error) throw new Error(error.message);
+    return pub.publicUrl;
+  },
+
   // Чат — `mobile` schema дээрх бодит backend (RPC + Realtime).
   getChatThreads: async (): Promise<ChatThread[]> => {
     const { data, error } = await mobileDb().rpc("get_conversations");
