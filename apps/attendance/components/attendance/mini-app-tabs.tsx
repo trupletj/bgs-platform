@@ -17,6 +17,13 @@ export function MiniAppTabs({
   shiftExchangeSlot: ReactNode;
 }) {
   const [tab, setTab] = useState<0 | 1>(0);
+  const [shiftMounted, setShiftMounted] = useState(false);
+
+  function handleTabChange(i: 0 | 1) {
+    window.scrollTo({ top: 0, behavior: "instant" });
+    if (i === 1) setShiftMounted(true);
+    setTab(i);
+  }
 
   return (
     <>
@@ -30,15 +37,17 @@ export function MiniAppTabs({
         {attendanceSlot}
       </div>
 
-      {/* Tab 2 — Ээлж солилцоо */}
-      <div
-        className={cn(
-          "mx-auto flex w-full max-w-md flex-col gap-4 p-4 pb-24",
-          tab !== 1 && "hidden",
-        )}
-      >
-        {shiftExchangeSlot}
-      </div>
+      {/* Tab 2 — Ээлж солилцоо: анх орох хүртэл mount хийхгүй */}
+      {shiftMounted && (
+        <div
+          className={cn(
+            "mx-auto flex w-full max-w-md flex-col gap-4 p-4 pb-24",
+            tab !== 1 && "hidden",
+          )}
+        >
+          {shiftExchangeSlot}
+        </div>
+      )}
 
       {/* Доод native маягийн tab bar */}
       <nav className="fixed inset-x-0 bottom-0 z-50 border-t bg-background/95 backdrop-blur">
@@ -50,7 +59,7 @@ export function MiniAppTabs({
               <button
                 key={t.label}
                 type="button"
-                onClick={() => setTab(i as 0 | 1)}
+                onClick={() => handleTabChange(i as 0 | 1)}
                 aria-current={active ? "page" : undefined}
                 className={cn(
                   "flex flex-1 flex-col items-center gap-1 py-2.5 transition-colors",
