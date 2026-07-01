@@ -133,3 +133,8 @@
 ::-webkit-scrollbar-thumb:hover {
   background: oklch(0.7 0.015 252);
 }
+
+@keyframes progress-fill {
+  from { width: 0%; }
+  to { width: var(--progress-target); }
+}

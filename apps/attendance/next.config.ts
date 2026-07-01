@@ -8,6 +8,7 @@ const parentOrigins = (process.env.NEXT_PUBLIC_PARENT_ORIGINS ?? "")
 const frameAncestors = ["'self'", ...parentOrigins].join(" ");
 
 const nextConfig: NextConfig = {
+  allowedDevOrigins: ["uncommendably-palingenesian-vasiliki.ngrok-free.dev"],
   images: {
     remotePatterns: [
       {

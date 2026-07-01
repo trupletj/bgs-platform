@@ -15,7 +15,7 @@ export default function RootLayout({
 }) {
   return (
     <html lang="mn" suppressHydrationWarning>
-      <body className="bg-background text-foreground antialiased">
+      <body className="bg-background text-foreground antialiased" suppressHydrationWarning>
         <SessionBridge />
         <IframeResizer>{children}</IframeResizer>
       </body>
