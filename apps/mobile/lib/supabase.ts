@@ -3,9 +3,8 @@ import { Platform } from "react-native";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { createClient } from "@supabase/supabase-js";
 
-const SUPABASE_URL = "https://ljlywyhpxsutvrdeyyla.supabase.co";
-const SUPABASE_ANON_KEY =
-  "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImxqbHl3eWhweHN1dHZyZGV5eWxhIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTc5Mjg2ODgsImV4cCI6MjA3MzUwNDY4OH0.TSutzsEy-_-aihRE50NYYHcdwVyqtJ8ZZIyAujqcXLI";
+const SUPABASE_URL = process.env.EXPO_PUBLIC_SUPABASE_URL!;
+const SUPABASE_ANON_KEY = process.env.EXPO_PUBLIC_SUPABASE_PUBLISHABLE_KEY!;
 
 // Web SSR-д `window` байхгүй тул AsyncStorage-ийн web shim
 // (localStorage руу хандахад) алдаа гаргадаг. Web дээр SSR-аас цаагуур
