@@ -103,7 +103,9 @@ export function QRScanner({ busId, passengers: _passengers, onConfirmed, onAlrea
       scannerRef.current = scanner as unknown as { stop: () => Promise<void> };
       await scanner.start(
         { facingMode: "environment" },
-        { fps: 10, qrbox: { width: 240, height: 240 } },
+        // 192 = h-48/w-48 (манай саарал rounded frame-ийн CSS хэмжээ) — html5-qrcode-ийн
+        // "харагдах" (unshaded) хэсгийг тэр frame-тэй давхцуулна.
+        { fps: 10, qrbox: { width: 192, height: 192 } },
         async (decoded: string) => {
           if (busyRef.current) return;
           busyRef.current = true;

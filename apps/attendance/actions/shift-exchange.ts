@@ -303,86 +303,49 @@ export const getMyLedBusesWithPassengers = cache(async (): Promise<LedBus[]> => 
 });
 
 // Бүртгэлгүй зорчигчийг энэ автобусанд шилжүүлэн нэмэх.
-// Зорчигчийн одоогийн assignment-г bteg_id-аар хайж, transfer_passenger RPC дуудна.
+// register_scanned_passenger RPC (SECURITY DEFINER) бүх lookup + transfer/insert + confirm-г
+// нэг дор, эрх шалгасны дараа гүйцэтгэнэ — RLS ахлахын өөрийн удирддаггүй автобусны
+// assignment-ыг нуудаг тул client талд шууд .select()/.insert() хийвэл "олдсонгүй" гэж
+// буруу дүгнэж INSERT оролдоод RLS violation шидэгддэг байсан.
 export async function addPassengerToBus(
   btegId: string,
   busId: string,
 ): Promise<{ status: "transferred" | "error"; name?: string; message?: string }> {
-  // public.users-с bteg_id → internal user id + нэр авна
-  const pub = await createClient();
-  const { data: u, error: userErr } = await pub
-    .from("users")
-    .select("id, first_name, last_name")
-    .eq("bteg_id", btegId)
-    .maybeSingle();
-
-  if (userErr) return { status: "error", message: userErr.message };
-  if (!u) return { status: "error", message: "Хэрэглэгч олдсонгүй" };
-
   const bgs = await createClientForSchema("bgs_attendance");
-
-  // Зорчигчийн shift_exchange-г target bus-аар олно
-  const { data: targetBus, error: busErr } = await bgs
-    .from("buses")
-    .select("shift_exchange_id")
-    .eq("id", busId)
-    .maybeSingle();
-
-  if (busErr || !targetBus) return { status: "error", message: "Автобус олдсонгүй" };
-
-  // Ижил ээлж солилцооны assignment-г хайна (олон ээлжийн давхардлаас зайлсхийнэ)
-  const { data: asgn, error: findErr } = await bgs
-    .from("passenger_assignments")
-    .select("id, bus_id")
-    .eq("internal_user_id", u.id)
-    .eq("shift_exchange_id", targetBus.shift_exchange_id)
-    .maybeSingle();
-
-  if (findErr) return { status: "error", message: findErr.message };
-
-  if (!asgn) {
-    // Ямар ч автобусанд бүртгэлгүй — шууд нэмнэ. original_bus_id = bus_id
-    // нь "Ээлжийн бус" (direct add) тэмдэглэгээ болно.
-    const { error: insertErr } = await bgs
-      .from("passenger_assignments")
-      .insert({
-        internal_user_id: u.id,
-        bteg_id: String(btegId),
-        bus_id: Number(busId),
-        original_bus_id: Number(busId),
-        shift_exchange_id: targetBus.shift_exchange_id,
-        is_confirmed: true,
-        confirmed_at: new Date().toISOString(),
-      });
-    if (insertErr) return { status: "error", message: insertErr.message };
-    revalidatePath("/");
-    const directName = [(u as any).last_name, (u as any).first_name].filter(Boolean).join(" ") || "—";
-    return { status: "transferred", name: directName };
-  }
-
-  if (String(asgn.bus_id) === String(busId)) {
-    return { status: "error", message: "Аль хэдийн энэ автобусанд бүртгэлтэй" };
-  }
-
-  const { error: transferErr } = await bgs.rpc("transfer_passenger", {
-    p_assignment_id: Number(asgn.id),
+  const { data, error } = await bgs.rpc("register_scanned_passenger", {
+    p_bteg_id: Number(btegId),
     p_target_bus_id: Number(busId),
   });
 
-  if (transferErr) return { status: "error", message: transferErr.message };
+  if (error) return { status: "error", message: error.message };
 
-  // Шилжилтийг аялалын ахлах зөвшөөрсөн тул автоматаар бүртгэгдсэн болгоно
-  await bgs.rpc("confirm_passenger", {
-    p_bteg_id: Number(btegId),
-    p_bus_id: Number(busId),
-  });
+  const res = data as { status: string; passenger_name?: string; message?: string };
 
-  revalidatePath("/");
-  const name = [(u as any).last_name, (u as any).first_name].filter(Boolean).join(" ") || "—";
-  return { status: "transferred", name };
+  if (res.status === "transferred") {
+    revalidatePath("/");
+    return { status: "transferred", name: res.passenger_name ?? "—" };
+  }
+  if (res.status === "already_this_bus") {
+    return { status: "error", message: "Аль хэдийн энэ автобусанд бүртгэлтэй" };
+  }
+  if (res.status === "user_not_found") {
+    return { status: "error", message: "Хэрэглэгч олдсонгүй" };
+  }
+  if (res.status === "bus_not_found") {
+    return { status: "error", message: "Автобус олдсонгүй" };
+  }
+  if (res.status === "forbidden") {
+    return { status: "error", message: "Танд энэ автобусанд зорчигч нэмэх эрх байхгүй" };
+  }
+  if (res.status === "full") {
+    return { status: "error", message: res.message ?? "Автобус дүүрсэн байна" };
+  }
+  return { status: "error", message: res.message ?? "Алдаа гарлаа" };
 }
 
 // bteg_id-аар зорчигчийн мэдээлэл авах (TransferDialog-д харуулах).
+// currentBusName-ийг get_passenger_current_bus RPC-ээр авна (RLS адил шалтгаанаар
+// ахлахын өөрийн бус автобусны assignment-ыг client талын .select()-д нуудаг).
 export async function getPassengerInfoByBtegId(btegId: string, targetBusId?: string): Promise<{
   name: string | null;
   departmentName: string | null;
@@ -390,7 +353,6 @@ export async function getPassengerInfoByBtegId(btegId: string, targetBusId?: str
   currentBusName: string | null;
 } | null> {
   const pub = await createClient();
-  const bgs = await createClientForSchema("bgs_attendance");
 
   const userRes = await pub
     .from("users")
@@ -401,24 +363,16 @@ export async function getPassengerInfoByBtegId(btegId: string, targetBusId?: str
   if (!userRes.data) return null;
   const u = userRes.data;
 
-  let shiftExchangeId: number | null = null;
-  if (targetBusId) {
-    const { data: bus } = await bgs.from("buses").select("shift_exchange_id").eq("id", targetBusId).maybeSingle();
-    shiftExchangeId = bus?.shift_exchange_id ?? null;
-  }
-
   let currentBusName: string | null = null;
-  if (shiftExchangeId) {
-    const { data: asgn } = await bgs
-      .from("passenger_assignments")
-      .select("bus_id")
-      .eq("internal_user_id", (u as any).id)
-      .eq("shift_exchange_id", shiftExchangeId)
-      .maybeSingle();
-
-    if (asgn?.bus_id) {
-      const { data: bus } = await bgs.from("buses").select("name").eq("id", asgn.bus_id).maybeSingle();
-      currentBusName = (bus as any)?.name ?? null;
+  if (targetBusId) {
+    const bgs = await createClientForSchema("bgs_attendance");
+    const { data } = await bgs.rpc("get_passenger_current_bus", {
+      p_bteg_id: Number(btegId),
+      p_target_bus_id: Number(targetBusId),
+    });
+    const res = data as { status: string; currentBusName?: string | null } | null;
+    if (res?.status === "ok") {
+      currentBusName = res.currentBusName ?? null;
     }
   }
 
