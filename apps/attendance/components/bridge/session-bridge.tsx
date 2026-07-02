@@ -13,6 +13,9 @@ import {
 
 // Parent-аас (bgs.mn iframe эсвэл RN WebView) ирсэн токеноор supabase session
 // сэргээж, дараа нь router.refresh() дуудаж RSC дахин fetch хийдэг.
+const MAX_RETRIES = 3;
+const RETRY_DELAYS_MS = [500, 1500, 3000];
+
 export function SessionBridge() {
   const router = useRouter();
 
@@ -20,20 +23,31 @@ export function SessionBridge() {
     const supabase = createClient();
     let cancelled = false;
 
+    // setSession() дотоод getUser() баталгаажуулалт нь retry-гүй тул нэг богино
+    // network blip-т ч бүтэн унадаг байсан — иймд энд нэмэлт retry-with-backoff.
     const apply = async (tokens: BridgeTokens, source: "hash" | "injected" | "refresh") => {
-      const { error } = await supabase.auth.setSession({
-        access_token: tokens.access_token,
-        refresh_token: tokens.refresh_token,
-      });
-      if (cancelled) return;
-      if (error) {
-        console.error("[bridge] setSession failed:", error.message);
-        return;
+      for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
+        const { error } = await supabase.auth.setSession({
+          access_token: tokens.access_token,
+          refresh_token: tokens.refresh_token,
+        });
+        if (cancelled) return;
+        if (!error) {
+          if (source === "hash") {
+            clearHash();
+          }
+          router.refresh();
+          return;
+        }
+        console.error(
+          `[bridge] setSession failed (attempt ${attempt + 1}/${MAX_RETRIES + 1}):`,
+          error.message, error.code, error.status,
+        );
+        if (attempt < MAX_RETRIES) {
+          await new Promise((r) => setTimeout(r, RETRY_DELAYS_MS[attempt]));
+          if (cancelled) return;
+        }
       }
-      if (source === "hash") {
-        clearHash();
-      }
-      router.refresh();
     };
 
     (async () => {

@@ -138,3 +138,9 @@
   from { width: 0%; }
   to { width: var(--progress-target); }
 }
+
+/* html5-qrcode ("qr-shaded-region" дотор) JS-ээр 4 буланд тасалдсан frame div-үүд
+   класс/атрибутгүйгээр шууд inject хийдэг тул зөвхөн энэ CSS-ээр нь нуух боломжтой. */
+#bgs-qr-reader #qr-shaded-region > div {
+  display: none !important;
+}
