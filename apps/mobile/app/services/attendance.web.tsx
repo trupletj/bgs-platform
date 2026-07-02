@@ -107,6 +107,7 @@ export default function AttendanceScreenWeb() {
         <iframe
           ref={iframeRef}
           src={src}
+          allow="camera"
           style={{ width: "100%", height: "100%", border: 0 }}
         />
       </View>
