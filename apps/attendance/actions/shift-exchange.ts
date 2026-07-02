@@ -385,17 +385,26 @@ export async function getPassengerInfoByBtegId(btegId: string, targetBusId?: str
 }
 
 // Шууд нэмэгдсэн зорчигчийг ("Ээлжийн бус") жагсаалтаас бүрмөсөн хасах.
+// remove_direct_passenger RPC (SECURITY DEFINER) ашиглана — plain .delete() нь
+// passenger_assignments дээрх цорын ганц DELETE RLS policy (pa_submit_delete)
+// зөвхөн submit эрхтэй хэрэглэгчид зориулагдсан тул trip leader-ийн хувьд
+// алдаагүйгээр 0 мөр устгаад "removed" гэж буцдаг (silent no-op) байсан.
 export async function removeDirectPassenger(
   assignmentId: string,
 ): Promise<{ status: "removed" | "error"; message?: string }> {
   const bgs = await createClientForSchema("bgs_attendance");
-  const { error } = await bgs
-    .from("passenger_assignments")
-    .delete()
-    .eq("id", Number(assignmentId));
+  const { data, error } = await bgs.rpc("remove_direct_passenger", {
+    p_assignment_id: Number(assignmentId),
+  });
   if (error) return { status: "error", message: error.message };
-  revalidatePath("/");
-  return { status: "removed" };
+  const res = data as { status: string };
+  if (res.status === "removed") {
+    revalidatePath("/");
+    return { status: "removed" };
+  }
+  if (res.status === "not_found") return { status: "error", message: "Олдсонгүй" };
+  if (res.status === "forbidden") return { status: "error", message: "Танд энэ зорчигчийг хасах эрх байхгүй" };
+  return { status: "error", message: "Алдаа гарлаа" };
 }
 
 // Шилжилтийг буцаах — зорчигчийг анхны автобус руу нь буцаана.
