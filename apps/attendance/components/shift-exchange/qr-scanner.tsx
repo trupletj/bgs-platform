@@ -189,7 +189,12 @@ export function QRScanner({ busId, passengers: _passengers, onConfirmed, onAlrea
         )}
         {status === "scanning" && (
           <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
-            <div className="h-48 w-48 rounded-lg border-2 border-white/60" />
+            {/* box-shadow spotlight — html5-qrcode-ийн own shading-с (globals.css-д нуусан)
+                бүрэн хамааралгүйгээр, яг энэ frame-тэй тохирсон харлуулалт үүсгэнэ. */}
+            <div
+              className="h-48 w-48 rounded-lg border-2 border-white/60"
+              style={{ boxShadow: "0 0 0 9999px rgba(0,0,0,0.5)" }}
+            />
           </div>
         )}
       </div>
