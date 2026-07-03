@@ -114,7 +114,7 @@ export default function GroupInfoScreen() {
     mutationFn: () => api.leaveGroup(groupId),
     onSuccess: () => {
       invalidateAll();
-      router.replace("/(tabs)" as never);
+      router.replace("/");
     },
     onError: (e: any) => alertDialog("Алдаа", e?.message ?? ""),
   });

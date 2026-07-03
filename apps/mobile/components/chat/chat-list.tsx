@@ -1,4 +1,4 @@
-import { BgsCard } from "@/components/bgs/card";
+import { View } from "react-native";
 import { ChatListItem } from "@/components/chat/chat-list-item";
 import type { BgsTheme } from "@/lib/theme";
 import type { ChatThread } from "@/types";
@@ -11,7 +11,7 @@ interface ChatListProps {
 
 export function ChatList({ t, threads, onPressThread }: ChatListProps) {
   return (
-    <BgsCard t={t} style={{ overflow: "hidden" }}>
+    <View>
       {threads.map((thread, i) => (
         <ChatListItem
           key={thread.id}
@@ -21,6 +21,6 @@ export function ChatList({ t, threads, onPressThread }: ChatListProps) {
           onPress={() => onPressThread(thread)}
         />
       ))}
-    </BgsCard>
+    </View>
   );
 }

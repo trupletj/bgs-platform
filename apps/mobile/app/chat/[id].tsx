@@ -1,46 +1,53 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { type RefObject, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   View,
   Text,
   Pressable,
   TextInput,
-  ScrollView,
-  KeyboardAvoidingView,
+  FlatList,
+  InputAccessoryView,
   Platform,
   ActivityIndicator,
   Linking,
   Modal,
 } from "react-native";
-import { SafeAreaView } from "react-native-safe-area-context";
+import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import { Image } from "expo-image";
 import * as ImagePicker from "expo-image-picker";
 import * as DocumentPicker from "expo-document-picker";
-import { useLocalSearchParams, useRouter } from "expo-router";
-import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { useFocusEffect, useLocalSearchParams, useRouter } from "expo-router";
+import {
+  useQuery,
+  useInfiniteQuery,
+  useMutation,
+  useQueryClient,
+} from "@tanstack/react-query";
 import {
   ChevronLeft,
   ChevronRight,
   Send,
   Megaphone,
   AlertCircle,
-  MoreVertical,
+  Check,
+  CheckCheck,
   Plus,
   FileText,
   ImagePlus,
-  Bell,
-  BellOff,
-  EyeOff,
 } from "lucide-react-native";
 import { api } from "@/lib/api";
 import { supabase } from "@/lib/supabase";
+import { setActiveChatThread } from "@/lib/push";
 import { queryKeys } from "@/lib/query-keys";
 import { useTheme } from "@/hooks/use-theme";
 import { S } from "@/constants/strings";
 import { tapLight } from "@/lib/haptics";
 import { confirmDialog, alertDialog } from "@/lib/dialog";
+import { avatarColor, avatarSoft } from "@/lib/avatar-color";
+import { NativeIcon } from "@/components/ui/native-icon";
 import type { ChatMessage, MessageAction } from "@/types";
 
 const PAGE = 30;
+const ACCESSORY_ID = "chat-composer";
 
 function dayLabel(iso?: string): string {
   if (!iso) return "";
@@ -55,20 +62,55 @@ function dayLabel(iso?: string): string {
   ).padStart(2, "0")}`;
 }
 
+function MsgAvatar({
+  url,
+  name,
+  size,
+}: {
+  url?: string;
+  name?: string;
+  size: number;
+}) {
+  if (url) {
+    return (
+      <Image
+        source={{ uri: url }}
+        style={{ width: size, height: size, borderRadius: size / 3 }}
+        contentFit="cover"
+      />
+    );
+  }
+  const initial = (name?.charAt(0) || "?").toUpperCase();
+  return (
+    <View
+      style={{
+        width: size,
+        height: size,
+        borderRadius: size / 3,
+        backgroundColor: avatarSoft(name ?? "?"),
+        alignItems: "center",
+        justifyContent: "center",
+      }}
+    >
+      <Text style={{ fontSize: size * 0.42, fontWeight: "800", color: avatarColor(name ?? "?") }}>
+        {initial}
+      </Text>
+    </View>
+  );
+}
+
 export default function ChatThreadScreen() {
   const router = useRouter();
   const t = useTheme();
   const qc = useQueryClient();
+  const insets = useSafeAreaInsets();
+  const mainInputRef = useRef<TextInput>(null);
+  const accessoryInputRef = useRef<TextInput>(null);
   const { id } = useLocalSearchParams<{ id: string }>();
   const threadId = String(id);
-  const scrollRef = useRef<ScrollView>(null);
   const [draft, setDraft] = useState("");
   const [attachOpen, setAttachOpen] = useState(false);
-  const [menuOpen, setMenuOpen] = useState(false);
-  const [older, setOlder] = useState<ChatMessage[]>([]);
   const [outbox, setOutbox] = useState<ChatMessage[]>([]);
-  const [hasMore, setHasMore] = useState(true);
-  const [loadingMore, setLoadingMore] = useState(false);
 
   const { data: threads } = useQuery({
     queryKey: queryKeys.chat.threads,
@@ -76,24 +118,73 @@ export default function ChatThreadScreen() {
   });
   const thread = threads?.find((th) => th.id === threadId);
 
-  const { data: base } = useQuery({
-    queryKey: queryKeys.chat.messages(threadId),
-    queryFn: () => api.getChatMessages(threadId, { limit: PAGE }),
-  });
+  // Хуудаслалт: "дараагийн хуудас" = хуучин мессежүүд (cursor = хамгийн
+  // эртний мессежийн created_at). pages[0] = хамгийн сүүлийн PAGE мессеж.
+  const { data: pages, fetchNextPage, hasNextPage, isFetchingNextPage } =
+    useInfiniteQuery({
+      queryKey: queryKeys.chat.messages(threadId),
+      queryFn: ({ pageParam }) =>
+        api.getChatMessages(threadId, { limit: PAGE, before: pageParam ?? undefined }),
+      initialPageParam: null as string | null,
+      getNextPageParam: (last) => (last.length < PAGE ? undefined : last[0]?.createdAt),
+    });
 
-  // older (хуучин) + base (сүүлийн хуудас) + outbox (илгээж буй)
-  const messages = useMemo(
-    () => [...older, ...(base ?? []), ...outbox],
-    [older, base, outbox]
+  // Хуудас бүр доторх дараалал ASC; хуудсуудыг урвуулж (хуучин→шинэ) flatten.
+  const server = useMemo(
+    () => [...(pages?.pages ?? [])].reverse().flat(),
+    [pages]
   );
 
-  const isOfficial = thread?.isOfficial ?? false;
-  const lastId = messages[messages.length - 1]?.id;
+  // Сервер дээр орсон, надаас гарсан мессежүүд (текст + цаг) — өөрийн send
+  // realtime-аар буцаж ирэхэд optimistic давхар bubble-ийг арилгахад ашиглана.
+  const serverMine = useMemo(
+    () =>
+      server
+        .filter((m) => m.fromMe && m.text && m.createdAt)
+        .map((m) => ({ text: m.text.trim(), t: new Date(m.createdAt!).getTime() })),
+    [server]
+  );
 
-  // Шинэ мессеж (доод тал) нэмэгдэхэд л доош гүйлгэнэ — хуучин ачаалахад биш
-  useEffect(() => {
-    if (lastId) requestAnimationFrame(() => scrollRef.current?.scrollToEnd({ animated: true }));
-  }, [lastId]);
+  // server (хуучин→шинэ) + outbox (илгээж буй).
+  // pending outbox-оос серверт echo болсныг (ижил текст, <60с) хасна.
+  // failed-ийг хэзээ ч хасахгүй — retry боломжтой байх ёстой.
+  const messages = useMemo(() => {
+    const live = outbox.filter((o) => {
+      if (o.failed || !o.createdAt) return true;
+      const ot = new Date(o.createdAt).getTime();
+      const txt = o.text.trim();
+      return !serverMine.some((s) => s.text === txt && Math.abs(s.t - ot) < 60_000);
+    });
+    return [...server, ...live];
+  }, [server, outbox, serverMine]);
+
+  // inverted FlatList-д шинэ→хуучин дараалал хэрэгтэй (index 0 = хамгийн шинэ)
+  const data = useMemo(() => [...messages].reverse(), [messages]);
+
+  const isOfficial = thread?.isOfficial ?? false;
+  const isDirect = !!thread && !thread.isGroup && !isOfficial;
+
+  // Read receipt — DM-д нөгөө талын сүүлд уншсан хугацаа (epoch ms)
+  const { data: peerReadAtRaw } = useQuery({
+    queryKey: queryKeys.chat.peerReadAt(threadId),
+    queryFn: () => api.getPeerReadAt(threadId),
+    enabled: isDirect,
+    refetchInterval: isDirect ? 15_000 : false,
+    staleTime: 10_000,
+  });
+  const peerReadAt = peerReadAtRaw ? new Date(peerReadAtRaw).getTime() : 0;
+
+  // Дэлгэц фокус авах бүрт нөгөө талын уншсан төлвийг шинэчилнэ;
+  // мөн идэвхтэй чатыг тэмдэглэж push banner-ийг (foreground) дарна.
+  useFocusEffect(
+    useCallback(() => {
+      setActiveChatThread(threadId);
+      if (isDirect) {
+        qc.invalidateQueries({ queryKey: queryKeys.chat.peerReadAt(threadId) });
+      }
+      return () => setActiveChatThread(null);
+    }, [isDirect, threadId, qc])
+  );
 
   // Нээгдэх үед уншсан болгох
   useEffect(() => {
@@ -117,6 +208,9 @@ export default function ChatThreadScreen() {
         () => {
           qc.invalidateQueries({ queryKey: queryKeys.chat.messages(threadId) });
           qc.invalidateQueries({ queryKey: queryKeys.chat.threads });
+          if (isDirect) {
+            qc.invalidateQueries({ queryKey: queryKeys.chat.peerReadAt(threadId) });
+          }
           api.markChatRead(threadId);
         }
       )
@@ -124,21 +218,7 @@ export default function ChatThreadScreen() {
     return () => {
       supabase.removeChannel(channel);
     };
-  }, [threadId, qc]);
-
-  const loadEarlier = async () => {
-    if (loadingMore || !hasMore) return;
-    const oldest = messages[0]?.createdAt;
-    if (!oldest) return;
-    setLoadingMore(true);
-    try {
-      const batch = await api.getChatMessages(threadId, { limit: PAGE, before: oldest });
-      if (batch.length < PAGE) setHasMore(false);
-      if (batch.length) setOlder((prev) => [...batch, ...prev]);
-    } finally {
-      setLoadingMore(false);
-    }
-  };
+  }, [threadId, qc, isDirect]);
 
   const sendMutation = useMutation({
     mutationFn: (vars: { tempId: string; body: string }) => api.sendChatMessage(threadId, vars.body),
@@ -155,53 +235,48 @@ export default function ChatThreadScreen() {
     },
   });
 
+  const makeOutboxItem = (tempId: string, text: string): ChatMessage => {
+    const now = new Date();
+    return {
+      id: tempId,
+      threadId,
+      text,
+      fromMe: true,
+      time: `${String(now.getHours()).padStart(2, "0")}:${String(now.getMinutes()).padStart(2, "0")}`,
+      createdAt: now.toISOString(),
+      pending: true,
+    };
+  };
+
   const handleSend = () => {
     const text = draft.trim();
     if (!text || sendMutation.isPending) return;
     tapLight();
     const tempId = `temp-${Date.now()}`;
-    const now = new Date();
-    setOutbox((prev) => [
-      ...prev,
-      {
-        id: tempId,
-        threadId,
-        text,
-        fromMe: true,
-        time: `${String(now.getHours()).padStart(2, "0")}:${String(now.getMinutes()).padStart(2, "0")}`,
-        createdAt: now.toISOString(),
-        pending: true,
-      },
-    ]);
+    setOutbox((prev) => [...prev, makeOutboxItem(tempId, text)]);
     setDraft("");
     sendMutation.mutate({ tempId, body: text });
   };
 
-  const muteMutation = useMutation({
-    mutationFn: (v: boolean) => api.setMute(threadId, v),
-    onSuccess: () => qc.invalidateQueries({ queryKey: queryKeys.chat.threads }),
-  });
-  const hideMutation = useMutation({
-    mutationFn: () => api.hideConversation(threadId),
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: queryKeys.chat.threads });
-      router.back();
-    },
-  });
-
-  const confirmHide = () => {
-    setMenuOpen(false);
-    confirmDialog({
-      title: S.chat.hideChat,
-      message: S.chat.hideChatConfirm,
-      confirmText: S.chat.hideChat,
-      destructive: true,
-      onConfirm: () => hideMutation.mutate(),
-    });
+  // Алдаа гарсан мессежийг ижил tempId-аар дахин илгээх (давхар bubble гарахгүй)
+  const retrySend = (tempId: string) => {
+    const item = outbox.find((m) => m.id === tempId);
+    if (!item) return;
+    tapLight();
+    setOutbox((prev) =>
+      prev.map((m) => (m.id === tempId ? { ...m, pending: true, failed: false } : m))
+    );
+    sendMutation.mutate({ tempId, body: item.text });
   };
-  const toggleMute = () => {
-    setMenuOpen(false);
-    if (thread) muteMutation.mutate(!thread.muted);
+
+  const confirmDeleteFailed = (tempId: string) => {
+    confirmDialog({
+      title: S.chat.deleteFailed,
+      message: S.chat.sendFailed,
+      confirmText: S.chat.deleteFailed,
+      destructive: true,
+      onConfirm: () => setOutbox((prev) => prev.filter((m) => m.id !== tempId)),
+    });
   };
 
   const mediaMutation = useMutation({
@@ -263,82 +338,186 @@ export default function ChatThreadScreen() {
     }
   };
 
+  // Зурвас бичих хэсэг. iOS дээр гарт (keyboard) native-аар бэхлэгдэхийн тулд
+  // InputAccessoryView дотор хуулбарыг рендерлэнэ; гар хаалттай үед normal bar.
+  const renderComposer = (ref: RefObject<TextInput | null>, accessory = false) => (
+    <View
+      style={{
+        flexDirection: "row",
+        alignItems: "flex-end",
+        gap: 8,
+        paddingHorizontal: 12,
+        paddingTop: 8,
+        paddingBottom: accessory ? 8 : Math.max(insets.bottom, 10),
+        borderTopWidth: 1,
+        borderTopColor: t.border,
+        backgroundColor: t.card,
+      }}
+    >
+      <Pressable
+        onPress={() => setAttachOpen(true)}
+        disabled={mediaMutation.isPending}
+        hitSlop={6}
+        style={{ width: 38, height: 38, borderRadius: 19, alignItems: "center", justifyContent: "center" }}
+      >
+        {mediaMutation.isPending ? (
+          <ActivityIndicator size="small" color={t.accent} />
+        ) : (
+          <NativeIcon sf="plus" lucide={Plus} size={24} color={t.sub} />
+        )}
+      </Pressable>
+      <TextInput
+        ref={ref}
+        value={draft}
+        onChangeText={setDraft}
+        placeholder={S.chat.inputPlaceholder}
+        placeholderTextColor={t.faint}
+        multiline
+        inputAccessoryViewID={Platform.OS === "ios" ? ACCESSORY_ID : undefined}
+        onFocus={
+          !accessory && Platform.OS === "ios"
+            ? () => accessoryInputRef.current?.focus()
+            : undefined
+        }
+        style={{
+          flex: 1,
+          minHeight: 38,
+          // iOS дээр гар нээлттэй үед бодит composer нь accessory хувилбар (гарт
+          // бэхлэгдсэн) — доорх inline хувилбар нь зөвхөн амрах төлөв. Түүнийг
+          // өсгөвөл inverted FlatList-ийн frame багасч, бичих бүрд жагсаалт дээшээ
+          // "өөрөө гүйлгэдэг". Тиймээс inline-iOS хувилбарын өндрийг тогтмол барина.
+          maxHeight: Platform.OS === "ios" && !accessory ? 38 : 120,
+          fontSize: 15,
+          color: t.text,
+          backgroundColor: t.bg,
+          borderRadius: 20,
+          borderWidth: 1,
+          borderColor: t.border,
+          paddingHorizontal: 14,
+          paddingTop: 9,
+          paddingBottom: 9,
+        }}
+      />
+      <Pressable
+        onPress={handleSend}
+        disabled={!draft.trim()}
+        hitSlop={6}
+        style={{
+          width: 38,
+          height: 38,
+          borderRadius: 19,
+          backgroundColor: draft.trim() ? t.accent : t.accentSoft,
+          alignItems: "center",
+          justifyContent: "center",
+        }}
+      >
+        <NativeIcon
+          sf="paperplane.fill"
+          lucide={Send}
+          size={18}
+          color={draft.trim() ? "#fff" : t.accent}
+        />
+      </Pressable>
+    </View>
+  );
+
   return (
     <SafeAreaView edges={["top"]} style={{ flex: 1, backgroundColor: t.bg }}>
-      {/* Header */}
+      {/* Custom header — contacts-маягийн flat header (Expo Go-д ажиллана) */}
       <View
         style={{
           flexDirection: "row",
           alignItems: "center",
           gap: 8,
           paddingHorizontal: 12,
-          paddingVertical: 10,
+          paddingTop: 6,
+          paddingBottom: 8,
           borderBottomWidth: 1,
           borderBottomColor: t.border,
-          backgroundColor: t.card,
+          backgroundColor: t.bg,
         }}
       >
         <Pressable
           onPress={() => router.back()}
-          style={{ width: 36, height: 36, alignItems: "center", justifyContent: "center" }}
+          hitSlop={8}
+          style={{ width: 36, height: 36, alignItems: "center", justifyContent: "center", marginLeft: -4 }}
         >
-          <ChevronLeft size={26} color={t.text} strokeWidth={2} />
+          <NativeIcon sf="chevron.backward" lucide={ChevronLeft} size={26} color={t.text} />
         </Pressable>
-        <Pressable
-          style={{ flex: 1, flexDirection: "row", alignItems: "center", gap: 5 }}
-          disabled={!thread?.isGroup}
-          onPress={() => thread?.isGroup && router.push(`/chat/group/${threadId}` as never)}
-        >
+
+        {thread?.isGroup ? (
+          <Pressable
+            style={{ flex: 1, flexDirection: "row", alignItems: "center", gap: 8 }}
+            onPress={() => router.push(`/chat/group/${threadId}` as never)}
+          >
+            <MsgAvatar url={thread?.avatarUrl} name={thread?.name} size={34} />
+            <Text
+              style={{ flex: 1, fontSize: 18, fontWeight: "800", color: t.text, letterSpacing: -0.3 }}
+              numberOfLines={1}
+            >
+              {thread?.name ?? "Чат"}
+            </Text>
+            <NativeIcon sf="chevron.right" lucide={ChevronRight} size={18} color={t.faint} />
+          </Pressable>
+        ) : (
           <Text
-            style={{ flex: 1, fontSize: 17, fontWeight: "700", color: t.text, letterSpacing: -0.3 }}
+            style={{ flex: 1, fontSize: 18, fontWeight: "800", color: t.text, letterSpacing: -0.3 }}
             numberOfLines={1}
           >
             {thread?.name ?? "Чат"}
           </Text>
-          {thread?.isGroup && <ChevronRight size={18} color={t.faint} strokeWidth={2} />}
-        </Pressable>
-        {!isOfficial && !thread?.isGroup && (
-          <Pressable
-            onPress={() => setMenuOpen(true)}
-            style={{ width: 36, height: 36, alignItems: "center", justifyContent: "center" }}
-          >
-            <MoreVertical size={22} color={t.text} strokeWidth={2} />
+        )}
+
+        {/* DM-д баруун талд харилцагчийн зураг → хэрэглэгчийн мэдээлэл хуудас */}
+        {isDirect && (
+          <Pressable onPress={() => router.push(`/chat/user/${threadId}` as never)} hitSlop={8}>
+            <MsgAvatar url={thread?.avatarUrl} name={thread?.name} size={34} />
           </Pressable>
         )}
       </View>
 
-      <KeyboardAvoidingView
-        style={{ flex: 1 }}
-        behavior={Platform.OS === "ios" ? "padding" : undefined}
-      >
-        <ScrollView
-          ref={scrollRef}
+      <View style={{ flex: 1 }}>
+        <FlatList
+          data={data}
+          inverted
+          keyExtractor={(m) => m.id}
           style={{ flex: 1 }}
-          contentContainerStyle={{ padding: 16, gap: 10 }}
+          contentContainerStyle={{
+            paddingHorizontal: 16,
+            paddingTop: 16,
+            paddingBottom: 12,
+            gap: 10,
+          }}
           showsVerticalScrollIndicator={false}
-        >
-          {/* Өмнөх мессеж ачаалах */}
-          {hasMore && messages.length >= PAGE && (
-            <Pressable
-              onPress={loadEarlier}
-              style={{ alignSelf: "center", paddingVertical: 8, paddingHorizontal: 16 }}
-            >
-              {loadingMore ? (
+          keyboardDismissMode={Platform.OS === "ios" ? "interactive" : "on-drag"}
+          automaticallyAdjustKeyboardInsets={Platform.OS === "ios"}
+          onEndReachedThreshold={0.3}
+          onEndReached={() => {
+            if (hasNextPage && !isFetchingNextPage) fetchNextPage();
+          }}
+          ListFooterComponent={
+            isFetchingNextPage ? (
+              <View style={{ paddingVertical: 12 }}>
                 <ActivityIndicator color={t.sub} />
-              ) : (
-                <Text style={{ fontSize: 12.5, fontWeight: "600", color: t.sub }}>
-                  {S.chat.loadEarlier}
-                </Text>
-              )}
-            </Pressable>
-          )}
-
-          {messages.map((m, i) => {
-            const prev = messages[i - 1];
+              </View>
+            ) : null
+          }
+          renderItem={({ item: m, index }) => {
+            // inverted дараалал тул index+1 нь хронологийн хувьд өмнөх (хуучин) мессеж
+            const prev = data[index + 1];
             const showDay =
               !!m.createdAt && dayLabel(m.createdAt) !== dayLabel(prev?.createdAt);
+            // Read receipt төлөв (зөвхөн DM, өөрийн мессеж)
+            const receiptState =
+              isDirect && m.fromMe && !m.failed
+                ? m.pending
+                  ? "sent"
+                  : m.createdAt && new Date(m.createdAt).getTime() <= peerReadAt
+                    ? "read"
+                    : "delivered"
+                : null;
             return (
-              <View key={m.id}>
+              <View>
                 {showDay && (
                   <View style={{ alignItems: "center", marginVertical: 8 }}>
                     <Text
@@ -359,11 +538,18 @@ export default function ChatThreadScreen() {
                 )}
                 <View
                   style={{
-                    maxWidth: "78%",
+                    flexDirection: "row",
+                    alignItems: "flex-end",
+                    gap: 6,
+                    maxWidth: thread?.isGroup ? "86%" : "78%",
                     alignSelf: m.fromMe ? "flex-end" : "flex-start",
                   }}
                 >
-                  {!m.fromMe && m.senderName && (
+                  {thread?.isGroup && !m.fromMe && (
+                    <MsgAvatar url={m.senderAvatarUrl} name={m.senderName} size={28} />
+                  )}
+                  <View style={{ flexShrink: 1, alignItems: m.fromMe ? "flex-end" : "flex-start" }}>
+                  {!m.fromMe && m.senderName && (thread?.isGroup || isOfficial) && (
                     <Text style={{ fontSize: 11, color: t.faint, marginBottom: 3, marginLeft: 6 }}>
                       {m.senderName}
                       {m.senderStaff ? ` · ${m.senderStaff}` : ""}
@@ -438,26 +624,56 @@ export default function ChatThreadScreen() {
                       ))}
                     </View>
                   )}
-                  <View
-                    style={{
-                      flexDirection: "row",
-                      alignItems: "center",
-                      gap: 4,
-                      marginTop: 3,
-                      alignSelf: m.fromMe ? "flex-end" : "flex-start",
-                      marginHorizontal: 6,
-                    }}
-                  >
-                    {m.failed && <AlertCircle size={12} color="#E5484D" strokeWidth={2} />}
-                    <Text style={{ fontSize: 10.5, color: m.failed ? "#E5484D" : t.faint }}>
-                      {m.failed ? S.chat.sendFailed : m.pending ? S.chat.sending : m.time}
-                    </Text>
+                  {m.failed ? (
+                    <Pressable
+                      onPress={() => retrySend(m.id)}
+                      onLongPress={() => confirmDeleteFailed(m.id)}
+                      hitSlop={6}
+                      style={{
+                        flexDirection: "row",
+                        alignItems: "center",
+                        gap: 4,
+                        marginTop: 3,
+                        alignSelf: "flex-end",
+                        marginHorizontal: 6,
+                      }}
+                    >
+                      <AlertCircle size={12} color="#E5484D" strokeWidth={2} />
+                      <Text style={{ fontSize: 10.5, color: "#E5484D", fontWeight: "600" }}>
+                        {S.chat.sendFailed} · {S.chat.retry}
+                      </Text>
+                    </Pressable>
+                  ) : (
+                    <View
+                      style={{
+                        flexDirection: "row",
+                        alignItems: "center",
+                        gap: 4,
+                        marginTop: 3,
+                        alignSelf: m.fromMe ? "flex-end" : "flex-start",
+                        marginHorizontal: 6,
+                      }}
+                    >
+                      <Text style={{ fontSize: 10.5, color: t.faint }}>
+                        {m.pending ? S.chat.sending : m.time}
+                      </Text>
+                      {receiptState === "sent" && (
+                        <Check size={13} color={t.faint} strokeWidth={2.5} />
+                      )}
+                      {receiptState === "delivered" && (
+                        <CheckCheck size={13} color={t.faint} strokeWidth={2.5} />
+                      )}
+                      {receiptState === "read" && (
+                        <CheckCheck size={13} color={t.accent} strokeWidth={2.5} />
+                      )}
+                    </View>
+                  )}
                   </View>
                 </View>
               </View>
             );
-          })}
-        </ScrollView>
+          }}
+        />
 
         {/* Read-only official суваг — бичих талбар нуугдана */}
         {isOfficial ? (
@@ -469,7 +685,7 @@ export default function ChatThreadScreen() {
               gap: 8,
               paddingHorizontal: 14,
               paddingTop: 12,
-              paddingBottom: Platform.OS === "ios" ? 26 : 16,
+              paddingBottom: Math.max(insets.bottom, 14),
               borderTopWidth: 1,
               borderTopColor: t.border,
               backgroundColor: t.card,
@@ -481,73 +697,16 @@ export default function ChatThreadScreen() {
             </Text>
           </View>
         ) : (
-          /* Input bar */
-          <View
-            style={{
-              flexDirection: "row",
-              alignItems: "flex-end",
-              gap: 10,
-              paddingHorizontal: 14,
-              paddingTop: 10,
-              paddingBottom: Platform.OS === "ios" ? 24 : 14,
-              borderTopWidth: 1,
-              borderTopColor: t.border,
-              backgroundColor: t.card,
-            }}
-          >
-            <Pressable
-              onPress={() => setAttachOpen(true)}
-              disabled={mediaMutation.isPending}
-              style={{
-                width: 40,
-                height: 40,
-                borderRadius: 20,
-                backgroundColor: t.bg,
-                alignItems: "center",
-                justifyContent: "center",
-              }}
-            >
-              {mediaMutation.isPending ? (
-                <ActivityIndicator size="small" color={t.accent} />
-              ) : (
-                <Plus size={22} color={t.sub} strokeWidth={2} />
-              )}
-            </Pressable>
-            <TextInput
-              value={draft}
-              onChangeText={setDraft}
-              placeholder={S.chat.inputPlaceholder}
-              placeholderTextColor={t.faint}
-              multiline
-              style={{
-                flex: 1,
-                maxHeight: 110,
-                fontSize: 14.5,
-                color: t.text,
-                backgroundColor: t.bg,
-                borderRadius: 18,
-                paddingHorizontal: 14,
-                paddingTop: 9,
-                paddingBottom: 9,
-              }}
-            />
-            <Pressable
-              onPress={handleSend}
-              disabled={!draft.trim()}
-              style={{
-                width: 40,
-                height: 40,
-                borderRadius: 20,
-                backgroundColor: draft.trim() ? t.accent : t.accentSoft,
-                alignItems: "center",
-                justifyContent: "center",
-              }}
-            >
-              <Send size={19} color={draft.trim() ? "#fff" : t.accent} strokeWidth={2} />
-            </Pressable>
-          </View>
+          renderComposer(mainInputRef)
         )}
-      </KeyboardAvoidingView>
+      </View>
+
+      {/* iOS — гарт native-аар бэхлэгдсэн composer */}
+      {Platform.OS === "ios" && !isOfficial && (
+        <InputAccessoryView nativeID={ACCESSORY_ID}>
+          {renderComposer(accessoryInputRef, true)}
+        </InputAccessoryView>
+      )}
 
       {/* Хавсаргах цэс (web + native) */}
       <Modal
@@ -567,7 +726,7 @@ export default function ChatThreadScreen() {
               borderTopLeftRadius: 20,
               borderTopRightRadius: 20,
               paddingTop: 8,
-              paddingBottom: Platform.OS === "ios" ? 34 : 18,
+              paddingBottom: Math.max(insets.bottom, 20),
             }}
           >
             <View style={{ alignItems: "center", paddingVertical: 8 }}>
@@ -587,57 +746,6 @@ export default function ChatThreadScreen() {
             >
               <FileText size={22} color={t.accent} strokeWidth={2} />
               <Text style={{ fontSize: 15.5, fontWeight: "600", color: t.text }}>{S.chat.attachFile}</Text>
-            </Pressable>
-          </Pressable>
-        </Pressable>
-      </Modal>
-
-      {/* 1:1 чатын цэс (Чимээгүй / Чат нуух) */}
-      <Modal
-        visible={menuOpen}
-        transparent
-        animationType="fade"
-        onRequestClose={() => setMenuOpen(false)}
-      >
-        <Pressable
-          style={{ flex: 1, justifyContent: "flex-end", backgroundColor: "rgba(0,0,0,0.35)" }}
-          onPress={() => setMenuOpen(false)}
-        >
-          <Pressable
-            onPress={(e) => e.stopPropagation()}
-            style={{
-              backgroundColor: t.card,
-              borderTopLeftRadius: 20,
-              borderTopRightRadius: 20,
-              paddingTop: 8,
-              paddingBottom: Platform.OS === "ios" ? 34 : 18,
-            }}
-          >
-            <View style={{ alignItems: "center", paddingVertical: 8 }}>
-              <View style={{ width: 38, height: 4, borderRadius: 2, backgroundColor: t.border }} />
-            </View>
-            <Pressable
-              onPress={toggleMute}
-              style={{ flexDirection: "row", alignItems: "center", gap: 14, paddingHorizontal: 22, paddingVertical: 16 }}
-            >
-              {thread?.muted ? (
-                <Bell size={22} color={t.accent} strokeWidth={2} />
-              ) : (
-                <BellOff size={22} color={t.accent} strokeWidth={2} />
-              )}
-              <Text style={{ fontSize: 15.5, fontWeight: "600", color: t.text }}>
-                {thread?.muted ? S.chat.unmute : S.chat.mute}
-              </Text>
-            </Pressable>
-            <View style={{ height: 1, backgroundColor: t.border, marginHorizontal: 22 }} />
-            <Pressable
-              onPress={confirmHide}
-              style={{ flexDirection: "row", alignItems: "center", gap: 14, paddingHorizontal: 22, paddingVertical: 16 }}
-            >
-              <EyeOff size={22} color="#E5484D" strokeWidth={2} />
-              <Text style={{ fontSize: 15.5, fontWeight: "600", color: "#E5484D" }}>
-                {S.chat.hideChat}
-              </Text>
             </Pressable>
           </Pressable>
         </Pressable>

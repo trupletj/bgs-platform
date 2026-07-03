@@ -122,6 +122,7 @@ export interface Contact {
   positionName: string;
   heltesName: string;
   phone: string;
+  avatarUrl?: string;
 }
 
 /** Надад ирсэн найзын хүсэлт */
@@ -142,6 +143,8 @@ export interface OrgGroup {
 export interface ChatThread {
   id: string;
   name: string;
+  /** Direct чатад нөгөө хэрэглэгчийн зураг; группд группийн зураг */
+  avatarUrl?: string;
   lastMessage: string;
   time: string;
   unread: number;
@@ -177,6 +180,8 @@ export interface ChatMessage {
   attachmentMime?: string;
   /** Бүлгийн чатад илгээгчийн нэр; official сувагт сувгийн нэр (badge) */
   senderName?: string;
+  /** Бүлгийн чатад илгээгчийн зураг (bubble-ийн өмнө харуулна) */
+  senderAvatarUrl?: string;
   /** Official сувагт бичсэн ажилтны нэр (автомат бол хоосон) */
   senderStaff?: string;
   /** Системийн мессеж дээрх үйлдлийн товчнууд */

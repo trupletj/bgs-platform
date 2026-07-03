@@ -22,9 +22,9 @@ function SectionLabel({ t, children }: { t: ReturnType<typeof getTheme>; childre
         fontSize: 13,
         fontWeight: "700",
         color: t.sub,
-        marginBottom: 8,
+        marginBottom: 6,
         marginLeft: 4,
-        marginTop: 18,
+        marginTop: 14,
       }}
     >
       {children}
@@ -146,7 +146,7 @@ export default function ContactsScreen() {
         {!!requests?.length && (
           <>
             <SectionLabel t={t}>{S.contacts.requests}</SectionLabel>
-            <BgsCard t={t} style={{ overflow: "hidden" }}>
+            <View>
               {requests.map((r, i) => (
                 <RequestRow
                   key={r.requesterId}
@@ -161,14 +161,14 @@ export default function ContactsScreen() {
                   onDecline={(req) => respondMutation.mutate({ id: req.requesterId, accept: false })}
                 />
               ))}
-            </BgsCard>
+            </View>
           </>
         )}
 
         {/* Contacts */}
         <SectionLabel t={t}>{S.contacts.contactsSection}</SectionLabel>
         {contacts?.length ? (
-          <BgsCard t={t} style={{ overflow: "hidden" }}>
+          <View>
             {contacts.map((c, i) => (
               <ContactListItem
                 key={c.userId}
@@ -179,7 +179,7 @@ export default function ContactsScreen() {
                 onLongPress={() => confirmRemove(c.userId)}
               />
             ))}
-          </BgsCard>
+          </View>
         ) : (
           <BgsCard t={t} style={{ padding: 24, alignItems: "center" }}>
             <Text style={{ fontSize: 14, color: t.sub, fontWeight: "600" }}>
@@ -195,7 +195,7 @@ export default function ContactsScreen() {
         {!!chatGroups.length && (
           <>
             <SectionLabel t={t}>{S.contacts.chatGroups}</SectionLabel>
-            <BgsCard t={t} style={{ overflow: "hidden" }}>
+            <View>
               {chatGroups.map((g, i) => (
                 <Pressable
                   key={g.id}
@@ -203,9 +203,9 @@ export default function ContactsScreen() {
                   style={{
                     flexDirection: "row",
                     alignItems: "center",
-                    gap: 13,
-                    paddingHorizontal: 16,
-                    paddingVertical: 12,
+                    gap: 11,
+                    paddingHorizontal: 6,
+                    paddingVertical: 9,
                     borderTopWidth: i > 0 ? 1 : 0,
                     borderTopColor: t.border,
                   }}
@@ -231,7 +231,7 @@ export default function ContactsScreen() {
                   <ChevronRight size={18} color={t.faint} strokeWidth={2} />
                 </Pressable>
               ))}
-            </BgsCard>
+            </View>
           </>
         )}
 
@@ -239,7 +239,7 @@ export default function ContactsScreen() {
         {!!orgGroups?.length && (
           <>
             <SectionLabel t={t}>{S.contacts.orgGroups}</SectionLabel>
-            <BgsCard t={t} style={{ overflow: "hidden" }}>
+            <View>
               {orgGroups.map((g, i) => (
                 <Pressable
                   key={g.groupId}
@@ -247,9 +247,9 @@ export default function ContactsScreen() {
                   style={{
                     flexDirection: "row",
                     alignItems: "center",
-                    gap: 13,
-                    paddingHorizontal: 16,
-                    paddingVertical: 12,
+                    gap: 11,
+                    paddingHorizontal: 6,
+                    paddingVertical: 9,
                     borderTopWidth: i > 0 ? 1 : 0,
                     borderTopColor: t.border,
                   }}
@@ -277,7 +277,7 @@ export default function ContactsScreen() {
                   <ChevronRight size={18} color={t.faint} strokeWidth={2} />
                 </Pressable>
               ))}
-            </BgsCard>
+            </View>
           </>
         )}
       </ScrollView>

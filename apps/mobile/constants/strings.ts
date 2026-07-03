@@ -19,6 +19,8 @@ export const S = {
     loadEarlier: "Өмнөх мессеж",
     sending: "Илгээж байна…",
     sendFailed: "Илгээгдсэнгүй",
+    retry: "Дахин илгээх",
+    deleteFailed: "Устгах",
     attach: "Хавсаргах",
     attachImage: "Зураг",
     attachFile: "Файл",
@@ -73,6 +75,7 @@ export const S = {
     hideChat: "Чат нуух",
     hideChatConfirm: "Энэ чатыг нуух уу? Шинэ мессеж ирэхэд дахин гарч ирнэ.",
     more: "Бусад",
+    userInfo: "Хэрэглэгчийн мэдээлэл",
   },
 
   // Contacts

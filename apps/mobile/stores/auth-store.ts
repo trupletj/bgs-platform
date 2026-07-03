@@ -7,6 +7,7 @@ import {
   setBiometricEnabled as storeBiometricEnabled,
   promptBiometric,
 } from "@/lib/biometric";
+import { unregisterPushNotificationsAsync } from "@/lib/push";
 import type { User } from "@/types";
 import type { Session } from "@supabase/supabase-js";
 
@@ -247,6 +248,8 @@ export const useAuthStore = create<AuthState>((set, get) => ({
   },
 
   logout: async () => {
+    // Push token-оо устгах (auth байгаа дээр RPC ажиллана), дараа нь signOut
+    await unregisterPushNotificationsAsync();
     await supabase.auth.signOut();
     await storeBiometricEnabled(false);
     set({

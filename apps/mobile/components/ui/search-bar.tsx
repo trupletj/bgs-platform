@@ -1,30 +1,44 @@
-import { View, TextInput } from "react-native";
+import { View, TextInput, type ViewStyle } from "react-native";
 import { Search } from "lucide-react-native";
+import { useTheme } from "@/hooks/use-theme";
 
 interface SearchBarProps {
   value: string;
   onChangeText: (text: string) => void;
   placeholder?: string;
-  className?: string;
+  style?: ViewStyle;
 }
 
 export function SearchBar({
   value,
   onChangeText,
   placeholder = "Хайх...",
-  className = "",
+  style,
 }: SearchBarProps) {
+  const t = useTheme();
   return (
     <View
-      className={`flex-row items-center bg-gray-100 dark:bg-gray-800 rounded-xl px-3 py-2.5 ${className}`}
+      style={[
+        {
+          flexDirection: "row",
+          alignItems: "center",
+          backgroundColor: t.card,
+          borderWidth: 1,
+          borderColor: t.border,
+          borderRadius: 12,
+          paddingHorizontal: 12,
+          paddingVertical: 10,
+        },
+        style,
+      ]}
     >
-      <Search size={18} color="#9CA3AF" />
+      <Search size={18} color={t.faint} />
       <TextInput
         value={value}
         onChangeText={onChangeText}
         placeholder={placeholder}
-        placeholderTextColor="#9CA3AF"
-        className="flex-1 ml-2 text-sm text-gray-900 dark:text-white"
+        placeholderTextColor={t.faint}
+        style={{ flex: 1, marginLeft: 8, fontSize: 14, color: t.text }}
       />
     </View>
   );

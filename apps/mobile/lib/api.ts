@@ -74,11 +74,12 @@ export const api = {
   setAvatar: async (file: { uri: string; mime: string; name?: string }): Promise<string> => {
     const ext = file.name?.includes(".") ? file.name.split(".").pop() : "jpg";
     const path = `${Date.now()}-${Math.random().toString(36).slice(2)}.${ext}`;
-    const resp = await fetch(file.uri);
-    const blob = await resp.blob();
+    // RN дээр fetch(...).blob() нь 0 байт файл үүсгэдэг тул arrayBuffer ашиглана
+    // (Supabase-ийн Expo гарын авлагын дагуу).
+    const arraybuffer = await fetch(file.uri).then((res) => res.arrayBuffer());
     const { error: upErr } = await supabase.storage
       .from("avatars")
-      .upload(path, blob, { contentType: file.mime, upsert: false });
+      .upload(path, arraybuffer, { contentType: file.mime, upsert: false });
     if (upErr) throw new Error(upErr.message);
     const { data: pub } = supabase.storage.from("avatars").getPublicUrl(path);
     const { error } = await mobileDb().rpc("set_avatar", { p_url: pub.publicUrl });
@@ -93,6 +94,7 @@ export const api = {
     return (data as any[]).map((row) => ({
       id: String(row.id),
       name: row.name ?? "Чат",
+      avatarUrl: row.avatar_url ?? undefined,
       lastMessage: row.last_message ?? "",
       time: formatChatTime(row.last_message_at),
       unread: row.unread ?? 0,
@@ -120,6 +122,7 @@ export const api = {
       time: formatChatTime(row.created_at),
       createdAt: row.created_at ?? undefined,
       senderName: row.sender_name ?? undefined,
+      senderAvatarUrl: row.sender_avatar ?? undefined,
       senderStaff: row.sender_staff ?? undefined,
       actions: Array.isArray(row.actions) ? (row.actions as any[]) : undefined,
       kind: row.kind ?? "text",
@@ -142,11 +145,29 @@ export const api = {
       text: row.body ?? "",
       fromMe: true,
       time: formatChatTime(row.created_at),
+      createdAt: row.created_at ?? undefined,
     };
   },
 
   markChatRead: async (threadId: string): Promise<void> => {
     await mobileDb().rpc("mark_read", { p_conversation_id: Number(threadId) });
+  },
+
+  // DM-д нөгөө талын хамгийн сүүлд уншсан хугацаа (read receipt тооцоход)
+  getPeerReadAt: async (threadId: string): Promise<string | null> => {
+    const { data, error } = await mobileDb().rpc("get_peer_read_at", {
+      p_conversation_id: Number(threadId),
+    });
+    if (error || !data) return null;
+    return data as string;
+  },
+
+  // Expo push token-ийг хадгалах / устгах (push notification)
+  savePushToken: async (token: string, platform: string): Promise<void> => {
+    await mobileDb().rpc("save_push_token", { p_token: token, p_platform: platform });
+  },
+  deletePushToken: async (token: string): Promise<void> => {
+    await mobileDb().rpc("delete_push_token", { p_token: token });
   },
 
   // Зураг/файл хавсралт upload хийгээд мессеж илгээх
@@ -160,11 +181,11 @@ export const api = {
         ? "jpg"
         : "bin";
     const path = `${threadId}/${Date.now()}-${Math.random().toString(36).slice(2)}.${ext}`;
-    const resp = await fetch(file.uri);
-    const blob = await resp.blob();
+    // RN дээр blob() 0 байт болдог тул arrayBuffer ашиглана
+    const arraybuffer = await fetch(file.uri).then((res) => res.arrayBuffer());
     const { error: upErr } = await supabase.storage
       .from("chat-media")
-      .upload(path, blob, { contentType: file.mime, upsert: false });
+      .upload(path, arraybuffer, { contentType: file.mime, upsert: false });
     if (upErr) throw new Error(upErr.message);
     const { data: pub } = supabase.storage.from("chat-media").getPublicUrl(path);
     const { error } = await mobileDb().rpc("send_media_message", {
@@ -432,7 +453,25 @@ export const api = {
       positionName: r.position_name ?? "",
       heltesName: r.heltes_name ?? "",
       phone: r.phone ?? "",
+      avatarUrl: r.avatar_url ?? undefined,
     }));
+  },
+
+  // DM ярианы нөгөө талын хэрэглэгчийн дэлгэрэнгүй (хэрэглэгчийн мэдээлэл хуудас)
+  getDirectPeer: async (conversationId: string): Promise<Contact | null> => {
+    const { data, error } = await mobileDb().rpc("get_direct_peer", {
+      p_conversation_id: Number(conversationId),
+    });
+    const r = (data as any[])?.[0];
+    if (error || !r) return null;
+    return {
+      userId: String(r.user_id),
+      name: r.name ?? "",
+      positionName: r.position_name ?? "",
+      heltesName: r.heltes_name ?? "",
+      phone: r.phone ?? "",
+      avatarUrl: r.avatar_url ?? undefined,
+    };
   },
 
   getContactRequests: async (): Promise<ContactRequest[]> => {
@@ -531,12 +570,12 @@ export const api = {
     if (file) {
       const ext = file.name.split(".").pop();
       const path = `${Date.now()}.${ext}`;
-      const response = await fetch(file.uri);
-      const blob = await response.blob();
+      // RN дээр blob() 0 байт болдог тул arrayBuffer ашиглана
+      const arraybuffer = await fetch(file.uri).then((res) => res.arrayBuffer());
 
       const { error: uploadError } = await supabase.storage
         .from("leave-attachments")
-        .upload(path, blob, { contentType: file.mimeType });
+        .upload(path, arraybuffer, { contentType: file.mimeType });
 
       if (!uploadError) {
         const { data: urlData } = supabase.storage

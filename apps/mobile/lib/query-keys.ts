@@ -14,6 +14,8 @@ export const queryKeys = {
   chat: {
     threads: ["chat", "threads"] as const,
     messages: (threadId: string) => ["chat", "messages", threadId] as const,
+    peerReadAt: (threadId: string) => ["chat", "peer-read", threadId] as const,
+    directPeer: (threadId: string) => ["chat", "direct-peer", threadId] as const,
     publicGroups: (q: string) => ["chat", "public-groups", q] as const,
     groupDetail: (id: string) => ["chat", "group-detail", id] as const,
     groupMembers: (id: string) => ["chat", "group-members", id] as const,

@@ -1,4 +1,5 @@
 import { View, Text, Pressable } from "react-native";
+import { Image } from "expo-image";
 import { Users, BadgeCheck, BellOff } from "lucide-react-native";
 import type { BgsTheme } from "@/lib/theme";
 import type { ChatThread } from "@/types";
@@ -24,42 +25,50 @@ export function ChatListItem({ t, thread, hasBorder, onPress }: ChatListItemProp
       style={{
         flexDirection: "row",
         alignItems: "center",
-        gap: 13,
-        paddingHorizontal: 16,
-        paddingVertical: 13,
+        gap: 11,
+        paddingHorizontal: 6,
+        paddingVertical: 9,
         borderTopWidth: hasBorder ? 1 : 0,
         borderTopColor: t.border,
       }}
     >
       {/* Avatar */}
-      <View
-        style={{
-          width: 50,
-          height: 50,
-          borderRadius: 17,
-          backgroundColor: avBg,
-          alignItems: "center",
-          justifyContent: "center",
-        }}
-      >
-        {thread.isGroup ? (
-          <Users
-            size={23}
-            color={thread.isOfficial ? "#fff" : t.accent}
-            strokeWidth={2}
-          />
-        ) : (
-          <Text
-            style={{
-              fontSize: 19,
-              fontWeight: "800",
-              color: avFg,
-            }}
-          >
-            {initial}
-          </Text>
-        )}
-      </View>
+      {thread.avatarUrl ? (
+        <Image
+          source={{ uri: thread.avatarUrl }}
+          style={{ width: 50, height: 50, borderRadius: 17 }}
+          contentFit="cover"
+        />
+      ) : (
+        <View
+          style={{
+            width: 50,
+            height: 50,
+            borderRadius: 17,
+            backgroundColor: avBg,
+            alignItems: "center",
+            justifyContent: "center",
+          }}
+        >
+          {thread.isGroup ? (
+            <Users
+              size={23}
+              color={thread.isOfficial ? "#fff" : t.accent}
+              strokeWidth={2}
+            />
+          ) : (
+            <Text
+              style={{
+                fontSize: 19,
+                fontWeight: "800",
+                color: avFg,
+              }}
+            >
+              {initial}
+            </Text>
+          )}
+        </View>
+      )}
 
       {/* Name + last message */}
       <View style={{ flex: 1, gap: 3 }}>

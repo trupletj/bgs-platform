@@ -20,9 +20,9 @@ export function RequestRow({ t, request, hasBorder, onAccept, onDecline, disable
       style={{
         flexDirection: "row",
         alignItems: "center",
-        gap: 13,
-        paddingHorizontal: 16,
-        paddingVertical: 12,
+        gap: 11,
+        paddingHorizontal: 6,
+        paddingVertical: 9,
         borderTopWidth: hasBorder ? 1 : 0,
         borderTopColor: t.border,
       }}

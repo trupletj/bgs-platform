@@ -1,4 +1,5 @@
 import { View, Text, Pressable } from "react-native";
+import { Image } from "expo-image";
 import { MessageCircle } from "lucide-react-native";
 import type { BgsTheme } from "@/lib/theme";
 import type { Contact } from "@/types";
@@ -23,27 +24,35 @@ export function ContactListItem({ t, contact, hasBorder, onPress, onLongPress }:
       style={{
         flexDirection: "row",
         alignItems: "center",
-        gap: 13,
-        paddingHorizontal: 16,
-        paddingVertical: 12,
+        gap: 11,
+        paddingHorizontal: 6,
+        paddingVertical: 9,
         borderTopWidth: hasBorder ? 1 : 0,
         borderTopColor: t.border,
       }}
     >
-      <View
-        style={{
-          width: 44,
-          height: 44,
-          borderRadius: 15,
-          backgroundColor: avatarSoft(contact.name),
-          alignItems: "center",
-          justifyContent: "center",
-        }}
-      >
-        <Text style={{ fontSize: 17, fontWeight: "800", color: avatarColor(contact.name) }}>
-          {initial}
-        </Text>
-      </View>
+      {contact.avatarUrl ? (
+        <Image
+          source={{ uri: contact.avatarUrl }}
+          style={{ width: 44, height: 44, borderRadius: 15 }}
+          contentFit="cover"
+        />
+      ) : (
+        <View
+          style={{
+            width: 44,
+            height: 44,
+            borderRadius: 15,
+            backgroundColor: avatarSoft(contact.name),
+            alignItems: "center",
+            justifyContent: "center",
+          }}
+        >
+          <Text style={{ fontSize: 17, fontWeight: "800", color: avatarColor(contact.name) }}>
+            {initial}
+          </Text>
+        </View>
+      )}
 
       <View style={{ flex: 1, gap: 2 }}>
         <Text style={{ fontSize: 15, fontWeight: "700", color: t.text }} numberOfLines={1}>
