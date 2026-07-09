@@ -164,6 +164,7 @@ export function LeaderView({ buses }: { buses: LedBus[] }) {
     setTransferDialog({ open: false, btegId: "", passengerName: null, departmentName: null, positionName: null, currentBusName: null, pending: false });
     if (res.status === "transferred") {
       showToast(`${res.name ?? ""} амжилттай бүртгэгдлээ`);
+      router.refresh();
     } else {
       showToast(res.message ?? "Алдаа гарлаа");
     }
